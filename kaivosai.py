@@ -27,7 +27,7 @@ def init_game_db(conn: sqlite3.Connection):
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS game_objects (
-            id INTEGER PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             type TEXT NOT NULL,
             name TEXT,
             x INTEGER NOT NULL,
@@ -58,11 +58,35 @@ def persist_object(conn: sqlite3.Connection, obj):
         'bank': getattr(obj, 'bank', None),
         'inventory': getattr(obj, 'inventory', None),
     }
-    conn.execute(
-        "INSERT OR REPLACE INTO game_objects (id, type, name, x, y, capacity, stored, durability, bank, inventory) VALUES (:id, :type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory)",
+    # If object already has an id and exists in DB, update the row
+    if vals['id'] is not None:
+        cur = conn.execute("SELECT id, type, x, y FROM game_objects WHERE id = ?", (vals['id'],))
+        row = cur.fetchone()
+        if row:
+            # If the existing DB row appears to be the same object (same type), update it.
+            # If types differ, treat this as a request to create a new object (ignore provided id)
+            if row['type'] == vals['type']:
+                conn.execute(
+                    "UPDATE game_objects SET type = :type, name = :name, x = :x, y = :y, capacity = :capacity, stored = :stored, durability = :durability, bank = :bank, inventory = :inventory WHERE id = :id",
+                    vals,
+                )
+                conn.commit()
+                return
+
+    # New object: remove any existing row at same coordinates, then INSERT
+    if vals['x'] is not None and vals['y'] is not None:
+        conn.execute("DELETE FROM game_objects WHERE x = ? AND y = ?", (vals['x'], vals['y']))
+    cur = conn.execute(
+        "INSERT INTO game_objects (type, name, x, y, capacity, stored, durability, bank, inventory) VALUES (:type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory)",
         vals,
     )
     conn.commit()
+    # assign generated id back to object if possible
+    new_id = cur.lastrowid
+    try:
+        setattr(obj, 'id', new_id)
+    except Exception:
+        pass
 
 
 def delete_object_db(conn: sqlite3.Connection, pos: Position):
@@ -99,8 +123,8 @@ def load_objects_from_db(conn: sqlite3.Connection):
 
 @dataclass
 class Building:
-    id: int
-    name: str
+    id: Optional[int] = None
+    name: str = ""
     pos: Position = (0, 0)
 
 
@@ -156,7 +180,7 @@ class Base(Building):
 
 @dataclass
 class Robot:
-    id: int
+    id: Optional[int] = None
     pos: Position = (0, 0)
     capacity: int = 10
     inventory: int = 0
@@ -279,7 +303,7 @@ class Map:
         return True
 
 
-def create_object(obj_type: str, id: int, name: str = None, **kwargs):
+def create_object(obj_type: str, id: Optional[int] = None, name: str = None, **kwargs):
     t = obj_type.lower()
     if t == 'robot':
         return Robot(id=id, pos=kwargs.get('pos', (0, 0)), capacity=kwargs.get('capacity', 10))
@@ -299,7 +323,7 @@ def repl(game_map: Map):
 
     def show_help():
         print("Commands:")
-        print("  add TYPE ID X Y           - add object (TYPE: robot,mine,storage,base,rock)")
+        print("  add TYPE [ID] X Y         - add object (ID optional; omitted = auto-assigned)")
         print("  remove X Y                - remove object at position")
         print("  move X1 Y1 X2 Y2          - move object")
         print("  list                      - list all objects")
@@ -361,20 +385,26 @@ def repl(game_map: Map):
             show_help()
             continue
         if cmd == 'add':
-            if len(args) < 4:
-                print('Usage: add TYPE ID X Y')
+            if len(args) < 3:
+                print('Usage: add TYPE [ID] X Y')
                 continue
             typ = args[0]
+            # support both: add TYPE ID X Y  and  add TYPE X Y
             try:
-                oid = int(args[1])
-                x = int(args[2]); y = int(args[3])
+                if len(args) == 3:
+                    oid = None
+                    x = int(args[1]); y = int(args[2])
+                else:
+                    # len >=4
+                    oid = int(args[1])
+                    x = int(args[2]); y = int(args[3])
             except ValueError:
                 print('ID,X,Y must be integers')
                 continue
             try:
                 obj = create_object(typ, oid, pos=(x, y))
                 game_map.add_object(obj, (x, y))
-                print('Added', typ, 'at', (x, y))
+                print('Added', typ, 'at', (x, y), 'id=', getattr(obj, 'id', None))
             except Exception as e:
                 print('Error:', e)
             continue
@@ -455,12 +485,13 @@ def run_demo():
     bot = Robot(id=1, pos=(0, 1), capacity=5)
     rock = Rock(id=99, name="Boulder", pos=(1, 1))
 
-    # place buildings and rock on the map
-    game_map.add_object(mine, mine.pos)
-    game_map.add_object(storage, storage.pos)
-    game_map.add_object(base, base.pos)
-    game_map.add_object(rock, rock.pos)
-    game_map.add_object(bot, bot.pos)
+    # place buildings and rock on the map (remove any existing objects at those positions first)
+    for obj in (mine, storage, base, rock, bot):
+        # remove existing object at position (also removes from DB if using persistence)
+        removed = game_map.remove_object(obj.pos)
+        if removed:
+            print(f"Removed existing {type(removed).__name__} at {obj.pos}")
+        game_map.add_object(obj, obj.pos)
 
     print("Map initial contents:")
     for p, o in sorted(game_map.cells.items()):
