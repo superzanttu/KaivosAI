@@ -5,38 +5,43 @@ A minimal command-line task manager. Tasks are stored in `tasks.db` (SQLite) in 
 Usage examples:
 
 - Add a task:
+ - Add a task:
 
 ```powershell
-python main.py add "Buy milk"
+python taskmanager.py add "Buy milk"
 ```
 Short alias: `python main.py a "Buy milk"`
 
 - List active tasks:
+ - List active tasks:
 
 ```powershell
-python main.py list
+python taskmanager.py list
 ```
-Short alias: `python main.py l`
+Short alias: `python taskmanager.py l`
 
 - List archived tasks:
+ - List archived tasks:
 
 ```powershell
-python main.py list --archived
+python taskmanager.py list --archived
 ```
 
 - Mark a task completed (by id):
+ - Mark a task completed (by id):
 
 ```powershell
-python main.py done 1
+python taskmanager.py done 1
 ```
-Short alias: `python main.py m 1`
+Short alias: `python taskmanager.py m 1`
 
 - Archive a task (soft-archive):
+ - Archive a task (soft-archive):
 
 ```powershell
-python main.py archive 1
+python taskmanager.py archive 1
 ```
-Short alias: `python main.py r 1`
+Short alias: `python taskmanager.py r 1`
 
 Notes:
 - No external dependencies required; runs with Python 3.7+

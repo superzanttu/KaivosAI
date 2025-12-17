@@ -1,3 +1,21 @@
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Virtualenv
+venv/
+env/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Databases
+game.db
+tasks.db
+
+# Editor dirs
+.vscode/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
