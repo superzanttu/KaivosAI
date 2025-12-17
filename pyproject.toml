@@ -1,0 +1,20 @@
+[project]
+name = "kaivosai"
+version = "0.1.0"
+description = "KaivosAI - minimal mining game prototype"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [ { name = "KaivosAI Author" } ]
+
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=6.0"]
+
+[project.scripts]
+kaivosai = "kaivosai.cli:run_demo"
+kaivosai-viewer = "kaivosai.viewer:run_viewer"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

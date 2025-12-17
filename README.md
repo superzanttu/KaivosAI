@@ -8,12 +8,18 @@ Run the game demo:
 python kaivosai.py
 ```
 
+Or run the package CLI directly:
+
+```powershell
+python -m kaivosai.cli
+```
+
 Map & REPL basics
 
 - The demo map defaults to 50x50.
 - Objects: `Robot`, `Mine`, `Storage`, `Base`, and impassable `Rock`.
 - Map REPL commands:
-	- `add TYPE ID X Y` : add object (TYPE: `robot`, `mine`, `storage`, `base`, `rock`)
+	- `add TYPE [ID] X Y` : add object (ID optional; omitted = auto-assigned)
 	- `remove X Y` : remove object at position
 	- `move X1 Y1 X2 Y2` : move an object
 	- `list` : list all objects on the map
@@ -44,7 +50,24 @@ python kaivosai.py
 	- `get X Y` : show object at a position
 	- `show [minx maxx miny maxy]` : ASCII map (auto-bounds when omitted)
 
+
 The demo uses `game.db` (SQLite) to persist all game objects and their state.
+
+Viewer
+
+- Run the real-time ASCII viewer:
+
+```powershell
+python -m kaivosai.viewer
+```
+
+Migrations
+
+- Deduplicate and migrate `game.db` (creates a backup `game.db.bak`):
+
+```powershell
+python -m kaivosai.migrations
+```
 
 Helper tools
 
