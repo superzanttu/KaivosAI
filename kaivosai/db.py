@@ -31,7 +31,8 @@ def init_game_db(conn: sqlite3.Connection):
             stored INTEGER,
             durability INTEGER,
             bank INTEGER,
-            inventory INTEGER
+            inventory INTEGER,
+            UNIQUE(x,y)
         )
         """
     )
@@ -41,7 +42,6 @@ def init_game_db(conn: sqlite3.Connection):
 def persist_object(conn: sqlite3.Connection, obj):
     obj_type = type(obj).__name__.lower()
     vals = {
-        'id': getattr(obj, 'id', None),
         'type': obj_type,
         'name': getattr(obj, 'name', None),
         'x': getattr(obj, 'pos')[0] if hasattr(obj, 'pos') else None,
@@ -53,30 +53,33 @@ def persist_object(conn: sqlite3.Connection, obj):
         'inventory': getattr(obj, 'inventory', None),
     }
 
-    if vals['id'] is not None:
-        cur = conn.execute("SELECT id, type, x, y FROM game_objects WHERE id = ?", (vals['id'],))
-        row = cur.fetchone()
-        if row:
-            if row['type'] == vals['type']:
-                conn.execute(
-                    "UPDATE game_objects SET type = :type, name = :name, x = :x, y = :y, capacity = :capacity, stored = :stored, durability = :durability, bank = :bank, inventory = :inventory WHERE id = :id",
-                    vals,
-                )
-                conn.commit()
-                return
-
-    if vals['x'] is not None and vals['y'] is not None:
-        conn.execute("DELETE FROM game_objects WHERE x = ? AND y = ?", (vals['x'], vals['y']))
+    # Use UPSERT keyed on coordinates so coordinates are authoritative.
     cur = conn.execute(
-        "INSERT INTO game_objects (type, name, x, y, capacity, stored, durability, bank, inventory) VALUES (:type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory)",
+        """
+        INSERT INTO game_objects (type, name, x, y, capacity, stored, durability, bank, inventory)
+        VALUES (:type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory)
+        ON CONFLICT(x,y) DO UPDATE SET
+            type=excluded.type,
+            name=excluded.name,
+            capacity=excluded.capacity,
+            stored=excluded.stored,
+            durability=excluded.durability,
+            bank=excluded.bank,
+            inventory=excluded.inventory
+        """,
         vals,
     )
     conn.commit()
-    new_id = cur.lastrowid
-    try:
-        setattr(obj, 'id', new_id)
-    except Exception:
-        pass
+
+    # Retrieve the canonical id for this position and assign to object
+    if vals['x'] is not None and vals['y'] is not None:
+        cur2 = conn.execute("SELECT id FROM game_objects WHERE x = ? AND y = ?", (vals['x'], vals['y']))
+        row = cur2.fetchone()
+        if row:
+            try:
+                setattr(obj, 'id', row['id'])
+            except Exception:
+                pass
 
 
 def delete_object_db(conn: sqlite3.Connection, pos: Position):

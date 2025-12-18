@@ -1,8 +1,20 @@
-"""KaivosAI package API.
+"""KaivosAI public API.
 
-This package re-exports the legacy API and new modules during refactor.
+Expose a small, explicit surface for consumers. `_legacy.py` remains
+in the package for compatibility but is not re-exported by default.
 """
-from ._legacy import *
-from .cli import *
+from .db import get_game_conn, init_game_db
+from .map import Map
+from .cli import run_demo, repl
+from .viewer import run_viewer
+from .migrations import migrate_deduplicate
 
-__all__ = [n for n in dir() if not n.startswith("_")]
+__all__ = [
+	'get_game_conn',
+	'init_game_db',
+	'Map',
+	'run_demo',
+	'repl',
+	'run_viewer',
+	'migrate_deduplicate',
+]
