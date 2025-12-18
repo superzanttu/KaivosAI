@@ -60,12 +60,32 @@ git status --short
 
 git add -A
 
+# If commit_message.txt exists in repo root, use it as commit message and trim whitespace.
+$commitFile = Join-Path (Get-Location) "commit_message.txt"
+if (Test-Path $commitFile) {
+	try {
+		$fileMsg = Get-Content $commitFile -Raw -ErrorAction Stop
+		if ($fileMsg) { $Message = $fileMsg.Trim() }
+	} catch {
+		Write-Output "Warning: failed to read commit_message.txt: $_"
+	}
+}
+
 # commit only if there are staged changes
 $staged = git diff --cached --name-only
 if (-not $staged) {
 	Write-Output "No changes to commit."
 } else {
 	git commit -m $Message
+	if ($LASTEXITCODE -eq 0 -and (Test-Path $commitFile)) {
+		# delete commit_message.txt after successful commit
+		try {
+			Remove-Item $commitFile -Force -ErrorAction Stop
+			Write-Output "Removed commit_message.txt after commit."
+		} catch {
+			Write-Output "Warning: failed to remove commit_message.txt: $_"
+		}
+	}
 }
 
 # Ensure branch and push
