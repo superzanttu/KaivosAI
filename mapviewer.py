@@ -69,15 +69,46 @@ def main():
     args = parser.parse_args()
 
     conn = kaivosai.get_game_conn(p)
+    # create a GameClock wrapper (reads/writes small meta keys); do not start it
+    try:
+        clock = kaivosai.GameClock(conn)
+    except Exception:
+        clock = None
     try:
         while True:
-            objs = kaivosai.load_objects_from_db(conn)
+            rows = kaivosai.load_objects_from_db(conn)
+            # convert DB rows into model objects for rendering
+            objs = []
+            for r in rows:
+                try:
+                    obj = kaivosai.create_object(r['type'], id=r['id'], name=r['name'], pos=(r['x'], r['y']), capacity=r['capacity'], durability=r['durability'])
+                except Exception:
+                    # fallback: create a simple object with pos attribute
+                    class Simple:
+                        def __init__(self, pos):
+                            self.pos = pos
+                    obj = Simple((r['x'], r['y']))
+                objs.append(obj)
             if args.region:
                 minx, maxx, miny, maxy = args.region
             else:
                 minx, maxx, miny, maxy = compute_auto_bounds(objs, args.width, args.height)
             clear_screen()
-            print(f"KaivosAI Map Viewer — {len(objs)} objects — refresh {args.interval}s")
+            # clock display: hh:mm:ss with blinking colons (visible on even seconds)
+            if clock:
+                try:
+                    sec = clock.seconds
+                    hh = (sec % 86400) // 3600
+                    mm = (sec % 3600) // 60
+                    ss = sec % 60
+                    colon = ':' if (ss % 2) == 0 else ' '
+                    clock_str = f"{hh:02d}{colon}{mm:02d}{colon}{ss:02d}"
+                except Exception:
+                    clock_str = "--:--:--"
+            else:
+                clock_str = "--:--:--"
+
+            print(f"KaivosAI Map Viewer — {len(objs)} objects — {clock_str} — refresh {args.interval}s")
             print(f"Region: x={minx}..{maxx} y={miny}..{maxy}")
             render(objs, minx, maxx, miny, maxy)
             print("\nLegend: R=Robot, M=Mine, S=Storage, B=Base, #=Rock")

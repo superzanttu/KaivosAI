@@ -1,4 +1,5 @@
-Add rotating spinner to REPL prompt (cycles through |\\/-).
-Use prompt_toolkit for robust interactive prompt and add dependency.
-Replace spinner with game clock display in prompt: show hh:mm:ss
-with blinking colons synced to `GameClock.seconds`.
+Add rotating spinner to REPL prompt (cycles through |\/-).
+Use `prompt_toolkit` for robust interactive prompt and add dependency.
+Replace spinner with game clock display in prompt: show hh:mm:ss with blinking colons synced to `GameClock.seconds`.
+Expose `load_objects_from_db` and model helpers in package API.
+Update `mapviewer.py` to render map and show blinking game clock in header.
