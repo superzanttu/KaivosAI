@@ -53,11 +53,49 @@ class Map:
             persist_object(self.conn, obj)
         return True
 
-    def remove_object(self, pos: Position):
-        obj = self.cells.pop(pos, None)
-        if obj and self.conn:
-            delete_object_db(self.conn, pos)
-        return obj
+    def remove_object(self, pos_or_id):
+        """Remove by position tuple `(x,y)` or by integer `id`.
+
+        Returns the removed object or None if not found.
+        """
+        # Remove by position
+        if isinstance(pos_or_id, tuple):
+            pos = pos_or_id
+            obj = self.cells.pop(pos, None)
+            if obj and self.conn:
+                delete_object_db(self.conn, pos)
+            return obj
+
+        # Remove by id
+        try:
+            oid = int(pos_or_id)
+        except Exception:
+            return None
+
+        # Try to find object in in-memory cells
+        found_pos = None
+        for p, o in list(self.cells.items()):
+            if getattr(o, 'id', None) == oid:
+                found_pos = p
+                break
+
+        if found_pos is not None:
+            obj = self.cells.pop(found_pos)
+            if self.conn:
+                delete_object_db(self.conn, found_pos)
+            return obj
+
+        # If not in memory, try to remove from DB (and return None)
+        if self.conn:
+            cur = self.conn.execute("SELECT x,y FROM game_objects WHERE id = ?", (oid,))
+            row = cur.fetchone()
+            if row:
+                pos = (row['x'], row['y'])
+                obj = self.cells.pop(pos, None)
+                delete_object_db(self.conn, pos)
+                return obj
+
+        return None
 
     def move_object(self, from_pos: Position, to_pos: Position):
         if not self.in_bounds(from_pos) or not self.in_bounds(to_pos):

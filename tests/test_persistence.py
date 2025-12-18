@@ -102,3 +102,27 @@ class PersistenceTests(unittest.TestCase):
         conn2.close()
         self.assertEqual(c, 1)
 
+    def test_remove_by_id(self):
+        tf = tempfile.NamedTemporaryFile(delete=False)
+        tf.close()
+        dbp = Path(tf.name)
+        conn = sqlite3.connect(str(dbp))
+        conn.row_factory = sqlite3.Row
+        init_game_db(conn)
+        game_map = Map(width=10, height=10, conn=conn)
+        m = Mine(name='DeleteMe', pos=(4, 4), durability=3)
+        game_map.add_object(m, m.pos)
+        oid = getattr(m, 'id', None)
+        self.assertIsNotNone(oid)
+
+        removed = game_map.remove_object(oid)
+        self.assertIsNotNone(removed)
+
+        conn.close()
+
+        conn2 = sqlite3.connect(str(dbp))
+        conn2.row_factory = sqlite3.Row
+        game_map2 = Map(width=10, height=10, conn=conn2)
+        self.assertNotIn((4, 4), game_map2.cells)
+        conn2.close()
+

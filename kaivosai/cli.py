@@ -96,9 +96,21 @@ def repl(game_map: Map):
                 print('Error:', e)
             continue
         if cmd == 'remove':
-            if len(args) < 2:
-                print('Usage: remove X Y')
+            # Support: remove ID  OR  remove X Y
+            if len(args) == 0:
+                print('Usage: remove ID  OR  remove X Y')
                 continue
+            if len(args) == 1:
+                # try ID
+                try:
+                    oid = int(args[0])
+                except ValueError:
+                    print('ID must be an integer')
+                    continue
+                obj = game_map.remove_object(oid)
+                print('Removed:', type(obj).__name__ if obj else 'None')
+                continue
+            # else two args -> X Y
             try:
                 x = int(args[0]); y = int(args[1])
             except ValueError:
