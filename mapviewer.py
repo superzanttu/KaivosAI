@@ -63,6 +63,20 @@ def compute_auto_bounds(objects, width, height, padding=2):
     return minx, maxx, miny, maxy
 
 
+def print_object_list(rows):
+    """Print a compact list of DB rows: ID NAME X Y"""
+    print("\nObjects:")
+    print("ID NAME X Y")
+    try:
+        for r in sorted(rows, key=lambda rr: rr['id']):
+            name = r['name'] if r['name'] else (r['type'].capitalize() if r['type'] else '')
+            print(f"{r['id']:2d} {name:12s} {r['x']:2d} {r['y']:2d}")
+    except Exception:
+        # fallback: best-effort printing
+        for r in rows:
+            print(f"{r.get('id')} {r.get('name') or r.get('type')} {r.get('x')} {r.get('y')}")
+
+
 def main():
     p = Path(__file__).parent / "game.db"
     parser = argparse.ArgumentParser(description="KaivosAI realtime map viewer")
@@ -114,6 +128,11 @@ def main():
 
             print(f"KaivosAI Map Viewer — {len(objs)} objects — {clock_str} — refresh {args.interval}s")
             print(f"Region: x={minx}..{maxx} y={miny}..{maxy}")
+            # Print object list (ID NAME X Y) similar to REPL `list`/`show`
+            try:
+                print_object_list(rows)
+            except Exception:
+                pass
             render(objs, minx, maxx, miny, maxy)
             print("\nLegend: R=Robot, M=Mine, S=Storage, B=Base, #=Rock")
             time.sleep(args.interval)
