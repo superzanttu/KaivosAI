@@ -36,6 +36,15 @@ def init_game_db(conn: sqlite3.Connection):
         )
         """
     )
+    # meta table for small key/value state (clock, settings)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS game_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+        """
+    )
     conn.commit()
 
 

@@ -7,6 +7,7 @@ requires-python = ">=3.8"
 authors = [ { name = "KaivosAI Author" } ]
 
 dependencies = []
+prompt_toolkit = ["prompt_toolkit>=3.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=6.0"]

@@ -4,6 +4,7 @@ from typing import Tuple
 from .db import get_game_conn, init_game_db
 from .map import Map
 from .models import Robot, Mine, Storage, Base, Rock, create_object
+from .clock import GameClock
 
 Position = Tuple[int, int]
 
@@ -19,6 +20,7 @@ def repl(game_map: Map):
         print("  list                      - list all objects")
         print("  get X Y                   - show object at position")
         print("  show [minx maxx miny maxy]- show ASCII map (auto-bounds if omitted)")
+        print("  time show|pause|resume|reset|set <seconds> - control game clock")
         print("  help                      - show this help")
         print("  quit                      - exit")
 
@@ -51,9 +53,42 @@ def repl(game_map: Map):
         for r in rows:
             print(r)
 
+    import sys
+    import time
+
+    try:
+        from prompt_toolkit.shortcuts import prompt
+    except Exception:
+        prompt = None
+
+    spinner_chars = '|\\/-'
+
     while True:
         try:
-            line = input('> ')
+            clock = getattr(game_map, 'clock', None)
+            if prompt:
+                def message():
+                    try:
+                        sec = clock.seconds if clock else int(time.time())
+                    except Exception:
+                        sec = int(time.time())
+                    # build hh:mm:ss from seconds (wrap at 24h)
+                    hh = (sec % 86400) // 3600
+                    mm = (sec % 3600) // 60
+                    ss = sec % 60
+                    # blinking colons: visible on even seconds
+                    colon = ':' if (ss % 2) == 0 else ' '
+                    return f"{hh:02d}{colon}{mm:02d}{colon}{ss:02d}> "
+
+                # refresh_interval causes the prompt UI to re-render periodically
+                line = prompt(message, refresh_interval=0.2)
+            else:
+                # fallback: simple per-prompt spinner char
+                if 'spinner_index' not in locals():
+                    spinner_index = 0
+                spinner = spinner_chars[spinner_index % len(spinner_chars)]
+                spinner_index = (spinner_index + 1) % len(spinner_chars)
+                line = input(f'{spinner}> ')
         except (EOFError, KeyboardInterrupt):
             print()
             break
@@ -73,6 +108,50 @@ def repl(game_map: Map):
         if cmd == 'help':
             show_help()
             continue
+        if cmd == 'time':
+            # time show | pause | resume | reset | set SECONDS
+            if not args:
+                print('Usage: time show|pause|resume|reset|set <seconds>')
+                continue
+            sub = args[0].lower()
+            clock = getattr(game_map, 'clock', None)
+            if clock is None and game_map.conn:
+                clock = GameClock(game_map.conn)
+                game_map.clock = clock
+            if sub == 'show':
+                if not clock:
+                    print('No clock available')
+                else:
+                    print(clock.show())
+                continue
+            if sub == 'pause':
+                if clock:
+                    clock.pause()
+                    print('Clock paused')
+                continue
+            if sub in ('resume', 'start'):
+                if clock:
+                    clock.start()
+                    print('Clock started')
+                continue
+            if sub == 'reset':
+                if clock:
+                    clock.reset()
+                    print('Clock reset')
+                continue
+            if sub == 'set':
+                if len(args) < 2:
+                    print('Usage: time set <seconds>')
+                    continue
+                try:
+                    secs = int(args[1])
+                except ValueError:
+                    print('Seconds must be integer')
+                    continue
+                if clock:
+                    clock.set_seconds(secs)
+                    print('Clock set')
+                continue
         if cmd == 'add':
             if len(args) < 3:
                 print('Usage: add TYPE [ID] X Y')
@@ -181,6 +260,10 @@ def run_demo():
     conn = get_game_conn()
     init_game_db(conn)
     game_map = Map(width=50, height=50, conn=conn)
+    # start game clock (persistent)
+    clock = GameClock(conn)
+    game_map.clock = clock
+    clock.start()
     mine = Mine(id=1, name="Iron Mine", pos=(0, 0), durability=25)
     storage = Storage(id=2, name="Storage A", pos=(1, 0), capacity=50)
     base = Base(id=3, name="Base", pos=(2, 0))
@@ -201,4 +284,9 @@ def run_demo():
     try:
         repl(game_map)
     finally:
+        # stop clock thread if present
+        try:
+            clock.stop()
+        except Exception:
+            pass
         conn.close()

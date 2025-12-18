@@ -1,0 +1,4 @@
+Add rotating spinner to REPL prompt (cycles through |\\/-).
+Use prompt_toolkit for robust interactive prompt and add dependency.
+Replace spinner with game clock display in prompt: show hh:mm:ss
+with blinking colons synced to `GameClock.seconds`.
