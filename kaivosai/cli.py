@@ -83,12 +83,17 @@ def repl(game_map: Map):
                 # refresh_interval causes the prompt UI to re-render periodically
                 line = prompt(message, refresh_interval=0.2)
             else:
-                # fallback: simple per-prompt spinner char
-                if 'spinner_index' not in locals():
-                    spinner_index = 0
-                spinner = spinner_chars[spinner_index % len(spinner_chars)]
-                spinner_index = (spinner_index + 1) % len(spinner_chars)
-                line = input(f'{spinner}> ')
+                # fallback: show the current time (once) in hh:mm:ss with blinking colons
+                try:
+                    sec = clock.seconds if clock else int(time.time())
+                except Exception:
+                    sec = int(time.time())
+                hh = (sec % 86400) // 3600
+                mm = (sec % 3600) // 60
+                ss = sec % 60
+                colon = ':' if (ss % 2) == 0 else ' '
+                prompt_str = f"{hh:02d}{colon}{mm:02d}{colon}{ss:02d}> "
+                line = input(prompt_str)
         except (EOFError, KeyboardInterrupt):
             print()
             break

@@ -116,20 +116,28 @@ class GameClock:
             self._thread.join(timeout=1)
 
     def _run_loop(self):
-        # Tick once per real second while running.
+        # Tick in response to real elapsed time using monotonic clock so
+        # the clock advances by ~1 second per real second even if the
+        # thread scheduling varies. This avoids drifting when the thread
+        # wakes earlier/later and improves accuracy.
+        last = time.monotonic()
         while not self._stop.is_set():
+            now = time.monotonic()
             if self.running:
-                # increment by 1 second
-                try:
-                    cur = int(self._get('game_seconds') or 0)
-                except Exception:
-                    cur = 0
-                cur += 1
-                self._set('game_seconds', str(cur))
-            # sleep a second in small increments to be responsive to stop
-            for _ in range(10):
-                if self._stop.wait(0.1):
-                    break
+                elapsed = now - last
+                if elapsed >= 1.0:
+                    # advance by whole seconds elapsed
+                    n = int(elapsed)
+                    try:
+                        cur = int(self._get('game_seconds') or 0)
+                    except Exception:
+                        cur = 0
+                    cur += n
+                    self._set('game_seconds', str(cur))
+                    last += n
+            # wait a short time so stop is responsive
+            if self._stop.wait(0.1):
+                break
 
     # formatting helpers
     def format(self) -> str:
