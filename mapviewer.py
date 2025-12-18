@@ -46,6 +46,7 @@ def render(objects, minx, maxx, miny, maxy):
     # column header spacer for y labels
     col_labels = ' '.join(str(x % 10) for x in range(minx, maxx + 1))
     print('   ' + col_labels)
+    # Print rows with y ascending so y=0 appears at top (top-left origin)
     for yi, row in enumerate(grid, start=miny):
         print(f"{yi:2d} " + ' '.join(row))
 

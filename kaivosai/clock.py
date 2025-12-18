@@ -30,6 +30,9 @@ class GameClock:
                 db_file = row[2]
         except Exception:
             db_file = None
+        # remember original conn/file for reconnect attempts
+        self._orig_conn = conn
+        self._db_file = db_file
         if not db_file:
             # fallback: assume in-memory or default file; reuse provided conn but allow thread use
             try:
@@ -58,13 +61,41 @@ class GameClock:
 
     # persistence helpers
     def _get(self, key: str) -> Optional[str]:
-        cur = self.conn.execute("SELECT value FROM game_meta WHERE key = ?", (key,))
-        row = cur.fetchone()
-        return row['value'] if row else None
+        try:
+            # Some sqlite setups may raise an InterfaceError with param tuples in
+            # threaded usage; use a safe escaped literal lookup as a robust fallback.
+            k = str(key).replace("'", "''")
+            cur = self.conn.execute(f"SELECT value FROM game_meta WHERE key = '{k}'")
+            row = cur.fetchone()
+            return row['value'] if row else None
+        except (sqlite3.InterfaceError, sqlite3.ProgrammingError):
+            # Try to reconnect if we have a file path
+            try:
+                if getattr(self, '_db_file', None):
+                    self.conn = sqlite3.connect(self._db_file, check_same_thread=False)
+                    self.conn.row_factory = sqlite3.Row
+                    cur = self.conn.execute(f"SELECT value FROM game_meta WHERE key = '{k}'")
+                    row = cur.fetchone()
+                    return row['value'] if row else None
+            except Exception:
+                return None
+            return None
 
     def _set(self, key: str, value: str):
-        self.conn.execute("INSERT OR REPLACE INTO game_meta(key,value) VALUES(?,?)", (key, str(value)))
-        self.conn.commit()
+        try:
+            k = str(key).replace("'", "''")
+            v = str(value).replace("'", "''")
+            self.conn.execute(f"INSERT OR REPLACE INTO game_meta(key,value) VALUES('{k}','{v}')")
+            self.conn.commit()
+        except (sqlite3.InterfaceError, sqlite3.ProgrammingError):
+            try:
+                if getattr(self, '_db_file', None):
+                    self.conn = sqlite3.connect(self._db_file, check_same_thread=False)
+                    self.conn.row_factory = sqlite3.Row
+                    self.conn.execute(f"INSERT OR REPLACE INTO game_meta(key,value) VALUES('{k}','{v}')")
+                    self.conn.commit()
+            except Exception:
+                pass
 
     @property
     def seconds(self) -> int:

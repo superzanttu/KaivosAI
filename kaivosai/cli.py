@@ -16,6 +16,7 @@ def repl(game_map: Map):
         print("Commands:")
         print("  add TYPE [ID] X Y         - add object (ID optional; omitted = auto-assigned)")
         print("  remove X Y                - remove object at position")
+        print("  goto ROBOT_ID X Y         - command robot to move to X Y")
         print("  move X1 Y1 X2 Y2          - move object")
         print("  list                      - list all objects")
         print("  get X Y                   - show object at position")
@@ -263,6 +264,25 @@ def repl(game_map: Map):
                     maxy = min(game_map.height - 1, max(ys) + 2)
             ascii_map(minx, maxx, miny, maxy)
             continue
+        if cmd == 'goto':
+            # goto ROBOT_ID X Y
+            if len(args) < 3:
+                print('Usage: goto ROBOT_ID X Y')
+                continue
+            try:
+                rid = int(args[0]); x = int(args[1]); y = int(args[2])
+            except ValueError:
+                print('ROBOT_ID,X,Y must be integers')
+                continue
+            try:
+                started = game_map.command_move_robot(rid, (x, y))
+                if started:
+                    print(f'Robot {rid} moving to {(x,y)}')
+                else:
+                    print('No path available or already at target')
+            except Exception as e:
+                print('Error:', e)
+            continue
         print('Unknown command. Type help.')
 
 
@@ -273,6 +293,7 @@ def run_demo():
     # start game clock (persistent)
     clock = GameClock(conn)
     game_map.clock = clock
+    game_map.set_clock(clock)
     clock.start()
     mine = Mine(id=1, name="Iron Mine", pos=(0, 0), durability=25)
     storage = Storage(id=2, name="Storage A", pos=(1, 0), capacity=50)
