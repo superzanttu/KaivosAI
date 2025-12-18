@@ -30,28 +30,33 @@ def repl(game_map: Map):
         if w > 80 or h > 40:
             print(f"Region too large ({w}x{h}); limit to 80x40")
             return
-        rows = []
+        # build grid
+        grid = [["." for _ in range(w)] for __ in range(h)]
         for y in range(miny, maxy + 1):
-            row = []
             for x in range(minx, maxx + 1):
                 obj = game_map.get((x, y))
+                ch = '.'
                 if obj is None:
-                    row.append('.')
+                    ch = '.'
                 elif isinstance(obj, Robot):
-                    row.append('R')
+                    ch = 'R'
                 elif isinstance(obj, Mine):
-                    row.append('M')
+                    ch = 'M'
                 elif isinstance(obj, Storage):
-                    row.append('S')
+                    ch = 'S'
                 elif isinstance(obj, Base):
-                    row.append('B')
+                    ch = 'B'
                 elif isinstance(obj, Rock):
-                    row.append('#')
+                    ch = '#'
                 else:
-                    row.append('?')
-            rows.append(''.join(row))
-        for r in rows:
-            print(r)
+                    ch = '?'
+                grid[y - miny][x - minx] = ch
+
+        # print x-axis header (mod 10) and rows with y coordinate labels
+        col_labels = ' '.join(str(x % 10) for x in range(minx, maxx + 1))
+        print('   ' + col_labels)
+        for yi, row in enumerate(grid, start=miny):
+            print(f"{yi:2d} " + ' '.join(row))
 
     import sys
     import time

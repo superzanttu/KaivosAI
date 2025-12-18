@@ -42,9 +42,12 @@ def render(objects, minx, maxx, miny, maxy):
         elif isinstance(o, kaivosai.Rock):
             ch = "#"
         grid[y - miny][x - minx] = ch
-    # print rows top-to-bottom (y increasing downwards)
-    for row in grid:
-        print("".join(row))
+    # print column header (x coordinates modulo 10) and rows with y coords
+    # column header spacer for y labels
+    col_labels = ' '.join(str(x % 10) for x in range(minx, maxx + 1))
+    print('   ' + col_labels)
+    for yi, row in enumerate(grid, start=miny):
+        print(f"{yi:2d} " + ' '.join(row))
 
 
 def compute_auto_bounds(objects, width, height, padding=2):

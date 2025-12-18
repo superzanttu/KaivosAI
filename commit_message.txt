@@ -5,5 +5,8 @@ Expose `load_objects_from_db` and model helpers in package API.
 Update `mapviewer.py` to render map and show blinking game clock in header.
 
 Also: fallback prompt now displays the current `hh:mm:ss` (colons blink based on seconds) when `prompt_toolkit` is not available.
- 
+
 Fix: make `GameClock` use monotonic timing to advance `game_seconds` by whole elapsed seconds so the clock ticks at ~1Hz reliably.
+
+Update: mapviewer now prints x/y coordinates (x across top, y at row start) for easier navigation.
+Update: `show` command ASCII map now prints x/y coordinates (x across top mod10, y at row start).
