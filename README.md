@@ -1,8 +1,16 @@
-# KaivosAI (primary project)
+# KaivosAI
 
-KaivosAI is a minimal mining-game prototype. The repository includes a small interactive demo that runs a persistent map, game objects, and a REPL for manual testing and development.
+KaivosAI is a minimal mining-game prototype with a Text User Interface (TUI). The game runs in your terminal and displays a live map, object list, game clock, and command input in a single window.
 
-Run the game demo:
+## Run the game
+
+**First, activate the virtual environment:**
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+Then run the game:
 
 ```powershell
 python kaivosai.py
@@ -14,69 +22,62 @@ Or run the package CLI directly:
 python -m kaivosai.cli
 ```
 
-Map & REPL basics
+The TUI uses [Urwid](https://urwid.org/) to display:
+- **Map panel**: live ASCII map with auto-centering
+- **Objects panel**: real-time list of all game objects
+- **Clock panel**: game time in HH:MM:SS format
+- **Status panel**: command feedback
+- **Command input**: type commands and press Enter
 
-- The demo map defaults to 50x50.
-- Objects: `Robot`, `Mine`, `Storage`, `Base`, and impassable `Rock`.
-- Map REPL commands:
-	- `add TYPE [ID] X Y` : add object (ID optional; omitted = auto-assigned)
-	- `remove X Y` : remove object at position
-	- `move X1 Y1 X2 Y2` : move an object
-	- `list` : list all objects on the map
-	- `get X Y` : show object at a position
-	- `show [minx maxx miny maxy]` : ASCII map (auto-bounds when omitted)
+## Commands
 
-Persistence
+All commands work in the TUI command input:
 
-- Game state is persisted in `game.db` (SQLite). Objects added/removed/moved in the REPL are saved automatically when a DB connection is used.
+- `add TYPE [ID] X Y` — add object (ID optional; omitted = auto-assigned)
+- `remove X Y` — remove object at position or `remove ID` for by-id removal
+- `move X1 Y1 X2 Y2` — move an object
+- `get X Y` — show object at a position
+- `goto ROBOT_ID X Y` — command robot to move to target
+- `time show|pause|resume|reset|set <seconds>` — control game clock
+- `reset` — clear all objects and reset clock
+- `demo` — add demo objects with IDs 1-5 (mine, storage, base, robot, rock)
+- `help` — show command list
+- `quit` or `ESC` — exit
 
-The rest of this repository contains helper tooling useful when developing the game.
+## Game objects
 
-**KaivosAI — Mining Game**
+- `Robot` (R) — autonomous agent
+- `Mine` (M) — resource source
+- `Storage` (S) — resource storage
+- `Base` (B) — home base
+- `Rock` (#) — impassable obstacle
 
-A minimal game/demo for KaivosAI. The game objects and a small interactive map live in `kaivosai.py`.
+## Persistence
 
-- Run the demo (starts REPL):
+Game state is persisted in `game.db` (SQLite). Objects added/removed/moved are saved automatically.
 
-```powershell
-python kaivosai.py
-```
+## Migrations
 
-- Map REPL commands (in `kaivosai.py`):
-	- `add TYPE ID X Y` : add object (TYPE: `robot`, `mine`, `storage`, `base`, `rock`)
-	- `remove X Y` : remove object at position
-	- `move X1 Y1 X2 Y2` : move an object
-	- `list` : list all objects on the map
-	- `get X Y` : show object at a position
-	- `show [minx maxx miny maxy]` : ASCII map (auto-bounds when omitted)
-
-
-The demo uses `game.db` (SQLite) to persist all game objects and their state.
-
-Viewer
-
-- Run the real-time ASCII viewer:
-
-```powershell
-python -m kaivosai.viewer
-```
-
-Migrations
-
-- Deduplicate and migrate `game.db` (creates a backup `game.db.bak`):
+Deduplicate and migrate `game.db` (creates backup `game.db.bak`):
 
 ```powershell
 python -m kaivosai.migrations
 ```
 
-Helper tools
+## Development tools
 
-Task manager (developer helper): a small CLI task manager remains in `taskmanager.py` to track TODOs while developing the game. Tasks persist in `tasks.db` (SQLite). It is intended as a developer convenience — not part of the core gameplay.
+### Task manager
 
-Both DB files are excluded by `.gitignore` by default.
+A small CLI task manager (`taskmanager.py`) tracks TODOs while developing. Tasks persist in `tasks.db`. Intended as developer convenience — not part of gameplay.
 
-Committing & pushing
+### Committing & pushing
 
-A helper script `commit_and_push.ps1` was added to show the exact git commands to run locally (PowerShell). If PowerShell script execution is restricted, run the commands directly instead (see the script for the exact steps).
+Helper script `commit_and_push.ps1` automates git commits. If PowerShell blocks, run git commands directly (see script for steps).
 
-If you want `python main.py` to launch the game demo, I can wire that change for you.
+### Dependencies
+
+Install Urwid for TUI support:
+
+```powershell
+python -m pip install urwid
+```

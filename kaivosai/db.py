@@ -13,8 +13,10 @@ GAME_DB = Path(__file__).parent.parent / "game.db"
 
 def get_game_conn(path: Optional[Path] = None):
     p = path or GAME_DB
-    conn = sqlite3.connect(str(p))
+    conn = sqlite3.connect(str(p), timeout=10.0)
     conn.row_factory = sqlite3.Row
+    # Enable WAL mode for better concurrency
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 
@@ -50,6 +52,7 @@ def init_game_db(conn: sqlite3.Connection):
 
 def persist_object(conn: sqlite3.Connection, obj):
     obj_type = type(obj).__name__.lower()
+    obj_id = getattr(obj, 'id', None)
     vals = {
         'type': obj_type,
         'name': getattr(obj, 'name', None),
@@ -63,22 +66,43 @@ def persist_object(conn: sqlite3.Connection, obj):
     }
 
     # Use UPSERT keyed on coordinates so coordinates are authoritative.
+    # If object has an ID, use it; otherwise let DB auto-assign
     try:
-        cur = conn.execute(
-            """
-            INSERT INTO game_objects (type, name, x, y, capacity, stored, durability, bank, inventory)
-            VALUES (:type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory)
-            ON CONFLICT(x,y) DO UPDATE SET
-                type=excluded.type,
-                name=excluded.name,
-                capacity=excluded.capacity,
-                stored=excluded.stored,
-                durability=excluded.durability,
-                bank=excluded.bank,
-                inventory=excluded.inventory
-            """,
-            vals,
-        )
+        if obj_id is not None:
+            # Insert with explicit ID
+            cur = conn.execute(
+                """
+                INSERT INTO game_objects (id, type, name, x, y, capacity, stored, durability, bank, inventory)
+                VALUES (:id, :type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory)
+                ON CONFLICT(x,y) DO UPDATE SET
+                    id=excluded.id,
+                    type=excluded.type,
+                    name=excluded.name,
+                    capacity=excluded.capacity,
+                    stored=excluded.stored,
+                    durability=excluded.durability,
+                    bank=excluded.bank,
+                    inventory=excluded.inventory
+                """,
+                {**vals, 'id': obj_id},
+            )
+        else:
+            # Let DB auto-assign ID
+            cur = conn.execute(
+                """
+                INSERT INTO game_objects (type, name, x, y, capacity, stored, durability, bank, inventory)
+                VALUES (:type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory)
+                ON CONFLICT(x,y) DO UPDATE SET
+                    type=excluded.type,
+                    name=excluded.name,
+                    capacity=excluded.capacity,
+                    stored=excluded.stored,
+                    durability=excluded.durability,
+                    bank=excluded.bank,
+                    inventory=excluded.inventory
+                """,
+                vals,
+            )
         conn.commit()
 
         # Retrieve the canonical id for this position and assign to object
@@ -96,12 +120,18 @@ def persist_object(conn: sqlite3.Connection, obj):
         if 'ON CONFLICT' in msg or 'does not match any PRIMARY KEY or UNIQUE constraint' in msg:
             if vals['x'] is not None and vals['y'] is not None:
                 conn.execute("DELETE FROM game_objects WHERE x = ? AND y = ?", (vals['x'], vals['y']))
-            cur = conn.execute(
-                "INSERT INTO game_objects (type, name, x, y, capacity, stored, durability, bank, inventory) VALUES (:type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory)",
-                vals,
-            )
+            if obj_id is not None:
+                cur = conn.execute(
+                    "INSERT INTO game_objects (id, type, name, x, y, capacity, stored, durability, bank, inventory) VALUES (:id, :type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory)",
+                    {**vals, 'id': obj_id},
+                )
+            else:
+                cur = conn.execute(
+                    "INSERT INTO game_objects (type, name, x, y, capacity, stored, durability, bank, inventory) VALUES (:type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory)",
+                    vals,
+                )
             conn.commit()
-            new_id = cur.lastrowid
+            new_id = cur.lastrowid if obj_id is None else obj_id
             try:
                 setattr(obj, 'id', new_id)
             except Exception:

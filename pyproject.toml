@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.8"
 authors = [ { name = "KaivosAI Author" } ]
 
-dependencies = []
+dependencies = [
+	"urwid>=2.1"
+]
 prompt_toolkit = ["prompt_toolkit>=3.0"]
 
 [project.optional-dependencies]
@@ -14,7 +16,6 @@ dev = ["pytest>=6.0"]
 
 [project.scripts]
 kaivosai = "kaivosai.cli:run_demo"
-kaivosai-viewer = "kaivosai.viewer:run_viewer"
 
 [build-system]
 requires = ["setuptools>=61.0"]

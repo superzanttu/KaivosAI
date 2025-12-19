@@ -41,8 +41,13 @@ class GameClock:
             except Exception:
                 self.conn = conn
         else:
-            self.conn = sqlite3.connect(db_file, check_same_thread=False)
+            self.conn = sqlite3.connect(db_file, check_same_thread=False, timeout=10.0)
             self.conn.row_factory = sqlite3.Row
+            # Enable WAL mode for better concurrency
+            try:
+                self.conn.execute("PRAGMA journal_mode=WAL")
+            except Exception:
+                pass
 
         # ensure meta keys exist
         self._ensure_meta()
@@ -90,12 +95,24 @@ class GameClock:
         except (sqlite3.InterfaceError, sqlite3.ProgrammingError):
             try:
                 if getattr(self, '_db_file', None):
-                    self.conn = sqlite3.connect(self._db_file, check_same_thread=False)
+                    self.conn = sqlite3.connect(self._db_file, check_same_thread=False, timeout=10.0)
                     self.conn.row_factory = sqlite3.Row
+                    self.conn.execute("PRAGMA journal_mode=WAL")
                     self.conn.execute(f"INSERT OR REPLACE INTO game_meta(key,value) VALUES('{k}','{v}')")
                     self.conn.commit()
             except Exception:
                 pass
+        except sqlite3.OperationalError as e:
+            # Database locked - retry once after short delay
+            if 'locked' in str(e).lower():
+                try:
+                    time.sleep(0.05)
+                    self.conn.execute(f"INSERT OR REPLACE INTO game_meta(key,value) VALUES('{k}','{v}')")
+                    self.conn.commit()
+                except Exception:
+                    pass  # Silently ignore if still locked
+            else:
+                raise
 
     @property
     def seconds(self) -> int:

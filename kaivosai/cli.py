@@ -1,5 +1,6 @@
-"""CLI and REPL for KaivosAI."""
-from typing import Tuple
+"""CLI and Urwid TUI for KaivosAI."""
+from typing import Tuple, List
+import shlex
 
 from .db import get_game_conn, init_game_db
 from .map import Map
@@ -8,8 +9,312 @@ from .clock import GameClock
 
 Position = Tuple[int, int]
 
+# Try to import Urwid; if unavailable, fall back to old REPL
+try:
+    import urwid  # type: ignore
+    URWID_AVAILABLE = True
+except ImportError:
+    URWID_AVAILABLE = False
+
+
+def run_urwid_tui(game_map: Map, clock: GameClock, conn):
+    """Run the Urwid-based TUI with map, object list, clock and command input."""
+    
+    # Widgets
+    map_text = urwid.Text('', align='left')
+    object_list_text = urwid.Text('', align='left')
+    clock_text = urwid.Text('', align='left')
+    status_text = urwid.Text('', align='left')
+    command_input = urwid.Edit('> ')
+    
+    # Layout: map on left, object list + clock on right, status + input at bottom
+    map_box = urwid.LineBox(urwid.Filler(map_text, valign='top'), title='Map')
+    info_pile = urwid.Pile([
+        urwid.LineBox(clock_text, title='Clock'),
+        urwid.LineBox(urwid.Filler(object_list_text, valign='top'), title='Objects'),
+    ])
+    top_columns = urwid.Columns([
+        ('weight', 2, map_box),
+        ('weight', 1, info_pile),
+    ])
+    
+    main_pile = urwid.Pile([
+        ('weight', 1, top_columns),
+        ('pack', urwid.LineBox(status_text, title='Status')),
+        ('pack', urwid.LineBox(command_input, title='Command (help, quit)')),
+    ])
+    
+    def build_map_display():
+        """Build ASCII map text."""
+        if not game_map.cells:
+            minx = 0; miny = 0; maxx = 9; maxy = 9
+        else:
+            xs = [p[0] for p in game_map.cells.keys()]
+            ys = [p[1] for p in game_map.cells.keys()]
+            minx = max(0, min(xs) - 2)
+            maxx = min(game_map.width - 1, max(xs) + 2)
+            miny = max(0, min(ys) - 2)
+            maxy = min(game_map.height - 1, max(ys) + 2)
+        
+        w = maxx - minx + 1
+        h = maxy - miny + 1
+        if w > 80 or h > 40:
+            return f"Region too large ({w}x{h})"
+        
+        grid = [["." for _ in range(w)] for __ in range(h)]
+        for y in range(miny, maxy + 1):
+            for x in range(minx, maxx + 1):
+                obj = game_map.get((x, y))
+                ch = '.'
+                if obj is None:
+                    ch = '.'
+                elif isinstance(obj, Robot):
+                    ch = 'R'
+                elif isinstance(obj, Mine):
+                    ch = 'M'
+                elif isinstance(obj, Storage):
+                    ch = 'S'
+                elif isinstance(obj, Base):
+                    ch = 'B'
+                elif isinstance(obj, Rock):
+                    ch = '#'
+                else:
+                    ch = '?'
+                grid[y - miny][x - minx] = ch
+        
+        col_labels = ' '.join(str(x % 10) for x in range(minx, maxx + 1))
+        lines: List[str] = ['   ' + col_labels]
+        for yi, row in enumerate(grid, start=miny):
+            lines.append(f"{yi:2d} " + ' '.join(row))
+        lines.append("")
+        lines.append("Legend: R=Robot M=Mine S=Storage B=Base #=Rock")
+        return '\n'.join(lines)
+    
+    def build_object_list():
+        """Build object list display."""
+        lines: List[str] = []
+        for p, o in sorted(game_map.cells.items(), key=lambda kv: (getattr(kv[1], 'id', 0) or 0)):
+            oid = getattr(o, 'id', None)
+            name = getattr(o, 'name', None) or type(o).__name__
+            x, y = p
+            lines.append(f"{oid:2} {name:12s} ({x:2},{y:2})")
+        return '\n'.join(lines) if lines else 'No objects'
+    
+    def build_clock_display():
+        """Build clock display."""
+        try:
+            sec = clock.seconds
+            hh = (sec % 86400) // 3600
+            mm = (sec % 3600) // 60
+            ss = sec % 60
+            colon = ':' if (ss % 2) == 0 else ' '
+            return f" {hh:02d}{colon}{mm:02d}{colon}{ss:02d}"
+        except Exception:
+            return " --:--:--"
+    
+    def refresh_display(loop=None, user_data=None):
+        """Update all display widgets."""
+        map_text.set_text(build_map_display())
+        object_list_text.set_text(build_object_list())
+        clock_text.set_text(build_clock_display())
+        if loop:
+            loop.set_alarm_in(0.5, refresh_display)
+    
+    def process_command(cmd_line: str):
+        """Process a command and return status message."""
+        if not cmd_line:
+            return ""
+        
+        try:
+            parts = shlex.split(cmd_line)
+        except Exception:
+            parts = cmd_line.split()
+        
+        if not parts:
+            return ""
+        
+        cmd = parts[0].lower()
+        args = parts[1:]
+        
+        if cmd in ('quit', 'exit', 'q'):
+            raise urwid.ExitMainLoop()
+        
+        if cmd == 'help':
+            return ("Commands: add TYPE [ID] X Y | remove X Y | move X1 Y1 X2 Y2 | "
+                    "list | get X Y | show | time show|pause|resume|reset|set <s> | "
+                    "reset | demo | quit")
+        
+        if cmd == 'time':
+            if not args:
+                return 'Usage: time show|pause|resume|reset|set <seconds>'
+            sub = args[0].lower()
+            if sub == 'show':
+                return clock.show()
+            if sub == 'pause':
+                clock.pause()
+                return 'Clock paused'
+            if sub in ('resume', 'start'):
+                clock.start()
+                return 'Clock started'
+            if sub == 'reset':
+                clock.reset()
+                return 'Clock reset'
+            if sub == 'set':
+                if len(args) < 2:
+                    return 'Usage: time set <seconds>'
+                try:
+                    secs = int(args[1])
+                    clock.set_seconds(secs)
+                    return 'Clock set'
+                except ValueError:
+                    return 'Seconds must be integer'
+            return 'Unknown time command'
+        
+        if cmd == 'add':
+            if len(args) < 3:
+                return 'Usage: add TYPE [ID] X Y'
+            typ = args[0]
+            try:
+                if len(args) == 3:
+                    oid = None
+                    x = int(args[1]); y = int(args[2])
+                else:
+                    oid = int(args[1])
+                    x = int(args[2]); y = int(args[3])
+            except ValueError:
+                return 'ID,X,Y must be integers'
+            try:
+                obj = create_object(typ, oid, pos=(x, y))
+                game_map.add_object(obj, (x, y))
+                return f'Added {typ} at ({x},{y}) id={getattr(obj, "id", None)}'
+            except Exception as e:
+                return f'Error: {e}'
+        
+        if cmd == 'remove':
+            if len(args) == 0:
+                return 'Usage: remove ID  OR  remove X Y'
+            if len(args) == 1:
+                try:
+                    oid = int(args[0])
+                except ValueError:
+                    return 'ID must be an integer'
+                obj = game_map.remove_object(oid)
+                return f'Removed: {type(obj).__name__ if obj else "None"}'
+            try:
+                x = int(args[0]); y = int(args[1])
+            except ValueError:
+                return 'X,Y must be integers'
+            obj = game_map.remove_object((x, y))
+            return f'Removed: {type(obj).__name__ if obj else "None"}'
+        
+        if cmd == 'move':
+            if len(args) < 4:
+                return 'Usage: move X1 Y1 X2 Y2'
+            try:
+                x1 = int(args[0]); y1 = int(args[1])
+                x2 = int(args[2]); y2 = int(args[3])
+            except ValueError:
+                return 'Coordinates must be integers'
+            try:
+                game_map.move_object((x1, y1), (x2, y2))
+                return 'Moved'
+            except Exception as e:
+                return f'Error: {e}'
+        
+        if cmd == 'list':
+            # This is handled by the object list widget
+            return 'See Objects panel'
+        
+        if cmd == 'get':
+            if len(args) < 2:
+                return 'Usage: get X Y'
+            try:
+                x = int(args[0]); y = int(args[1])
+            except ValueError:
+                return 'X,Y must be integers'
+            obj = game_map.get((x, y))
+            return str(obj) if obj else 'Empty'
+        
+        if cmd == 'show':
+            # Map is always shown
+            return 'See Map panel'
+        
+        if cmd == 'goto':
+            if len(args) < 3:
+                return 'Usage: goto ROBOT_ID X Y'
+            try:
+                rid = int(args[0]); x = int(args[1]); y = int(args[2])
+            except ValueError:
+                return 'ROBOT_ID,X,Y must be integers'
+            try:
+                started = game_map.command_move_robot(rid, (x, y))
+                if started:
+                    return f'Robot {rid} moving to ({x},{y})'
+                else:
+                    return 'No path available or already at target'
+            except Exception as e:
+                return f'Error: {e}'
+        
+        if cmd == 'reset':
+            # Clear all objects from map and DB
+            for pos in list(game_map.cells.keys()):
+                game_map.remove_object(pos)
+            # Reset AUTOINCREMENT counter for fresh IDs starting from 1 (or 0 if explicitly set)
+            if game_map.conn:
+                try:
+                    game_map.conn.execute("DELETE FROM sqlite_sequence WHERE name='game_objects'")
+                    game_map.conn.commit()
+                except Exception:
+                    pass
+            clock.reset()
+            return 'Game reset: all objects removed, clock reset, ID counter reset'
+        
+        if cmd == 'demo':
+            # Add demo objects with IDs starting from 0
+            demo_objects = [
+                ('mine', 0, 'Iron Mine', (0, 0), {'durability': 25}),
+                ('storage', 1, 'Storage A', (1, 0), {'capacity': 50}),
+                ('base', 2, 'Base', (2, 0), {}),
+                ('robot', 3, 'Bot', (0, 1), {'capacity': 5}),
+                ('rock', 4, 'Boulder', (1, 1), {}),
+            ]
+            added = 0
+            for typ, oid, name, pos, kwargs in demo_objects:
+                try:
+                    obj = create_object(typ, oid, name=name, pos=pos, **kwargs)
+                    # Remove any existing object at position
+                    game_map.remove_object(pos)
+                    game_map.add_object(obj, pos)
+                    added += 1
+                except Exception as e:
+                    pass
+            return f'Added {added} demo objects'
+        
+        return f'Unknown command: {cmd}. Type help.'
+    
+    def handle_input(key):
+        """Handle keyboard input."""
+        if key == 'enter':
+            cmd_line = command_input.get_edit_text()
+            command_input.set_edit_text('')
+            try:
+                msg = process_command(cmd_line)
+                status_text.set_text(msg)
+                refresh_display()  # Refresh immediately after command
+            except urwid.ExitMainLoop:
+                raise
+            except Exception as e:
+                status_text.set_text(f'Error: {e}')
+        elif key in ('esc',):
+            raise urwid.ExitMainLoop()
+    
+    loop = urwid.MainLoop(main_pile, unhandled_input=handle_input)
+    refresh_display(loop)
+    loop.run()
+
 
 def repl(game_map: Map):
+    """Old fallback REPL (when Urwid not available)."""
     import shlex
 
     def show_help():
@@ -22,6 +327,8 @@ def repl(game_map: Map):
         print("  get X Y                   - show object at position")
         print("  show [minx maxx miny maxy]- show ASCII map (auto-bounds if omitted)")
         print("  time show|pause|resume|reset|set <seconds> - control game clock")
+        print("  reset                     - clear all objects and reset clock")
+        print("  demo                      - add demo objects to map")
         print("  help                      - show this help")
         print("  quit                      - exit")
 
@@ -283,10 +590,48 @@ def repl(game_map: Map):
             except Exception as e:
                 print('Error:', e)
             continue
+        if cmd == 'reset':
+            # Clear all objects from map and DB
+            for pos in list(game_map.cells.keys()):
+                game_map.remove_object(pos)
+            # Reset AUTOINCREMENT counter for fresh IDs
+            if game_map.conn:
+                try:
+                    game_map.conn.execute("DELETE FROM sqlite_sequence WHERE name='game_objects'")
+                    game_map.conn.commit()
+                except Exception:
+                    pass
+            clock = getattr(game_map, 'clock', None)
+            if clock:
+                clock.reset()
+            print('Game reset: all objects removed, clock reset, ID counter reset')
+            continue
+        if cmd == 'demo':
+            # Add demo objects with IDs starting from 0
+            demo_objects = [
+                ('mine', 0, 'Iron Mine', (0, 0), {'durability': 25}),
+                ('storage', 1, 'Storage A', (1, 0), {'capacity': 50}),
+                ('base', 2, 'Base', (2, 0), {}),
+                ('robot', 3, 'Bot', (0, 1), {'capacity': 5}),
+                ('rock', 4, 'Boulder', (1, 1), {}),
+            ]
+            added = 0
+            for typ, oid, name, pos, kwargs in demo_objects:
+                try:
+                    obj = create_object(typ, oid, name=name, pos=pos, **kwargs)
+                    # Remove any existing object at position
+                    game_map.remove_object(pos)
+                    game_map.add_object(obj, pos)
+                    added += 1
+                except Exception as e:
+                    pass
+            print(f'Added {added} demo objects')
+            continue
         print('Unknown command. Type help.')
 
 
 def run_demo():
+    """Start the demo with Urwid TUI or fallback REPL."""
     conn = get_game_conn()
     init_game_db(conn)
     game_map = Map(width=50, height=50, conn=conn)
@@ -295,29 +640,44 @@ def run_demo():
     game_map.clock = clock
     game_map.set_clock(clock)
     clock.start()
-    mine = Mine(id=1, name="Iron Mine", pos=(0, 0), durability=25)
-    storage = Storage(id=2, name="Storage A", pos=(1, 0), capacity=50)
-    base = Base(id=3, name="Base", pos=(2, 0))
-    bot = Robot(id=1, pos=(0, 1), capacity=5)
-    rock = Rock(id=99, name="Boulder", pos=(1, 1))
+    
+    # Only add demo objects if database is empty
+    existing = list(conn.execute('SELECT COUNT(*) as cnt FROM game_objects').fetchone())
+    if existing[0] == 0:
+        print("Empty database detected - adding demo objects...")
+        mine = Mine(id=1, name="Iron Mine", pos=(0, 0), durability=25)
+        storage = Storage(id=2, name="Storage A", pos=(1, 0), capacity=50)
+        base = Base(id=3, name="Base", pos=(2, 0))
+        bot = Robot(id=4, pos=(0, 1), capacity=5)
+        rock = Rock(id=5, name="Boulder", pos=(1, 1))
 
-    for obj in (mine, storage, base, rock, bot):
-        removed = game_map.remove_object(obj.pos)
-        if removed:
-            print(f"Removed existing {type(removed).__name__} at {obj.pos}")
-        game_map.add_object(obj, obj.pos)
+        for obj in (mine, storage, base, rock, bot):
+            game_map.add_object(obj, obj.pos)
+        print("Demo objects added. Use 'demo' command to recreate or 'reset' to clear.")
 
-    print("Map initial contents:")
-    for p, o in sorted(game_map.cells.items()):
-        print(p, type(o).__name__, getattr(o, 'id', None))
-
-    print("\nEntering interactive command prompt. Type 'help' for commands.")
-    try:
-        repl(game_map)
-    finally:
-        # stop clock thread if present
+    if URWID_AVAILABLE:
+        # Launch Urwid TUI
         try:
-            clock.stop()
-        except Exception:
-            pass
-        conn.close()
+            run_urwid_tui(game_map, clock, conn)
+        finally:
+            try:
+                clock.stop()
+            except Exception:
+                pass
+            conn.close()
+    else:
+        # Fallback to old REPL
+        print("Map initial contents:")
+        for p, o in sorted(game_map.cells.items()):
+            print(p, type(o).__name__, getattr(o, 'id', None))
+
+        print("\nEntering interactive command prompt. Type 'help' for commands.")
+        try:
+            repl(game_map)
+        finally:
+            # stop clock thread if present
+            try:
+                clock.stop()
+            except Exception:
+                pass
+            conn.close()
