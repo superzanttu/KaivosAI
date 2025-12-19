@@ -2,6 +2,7 @@ from typing import Tuple, Dict, Optional, List
 import sqlite3
 import threading
 import time
+import random
 
 from .db import init_game_db, persist_object, delete_object_db, load_objects_from_db
 from .models import Robot, Mine, Storage, Base, Rock
@@ -277,3 +278,104 @@ class Map:
             if self.in_bounds((nx, ny)):
                 neighbors.append((nx, ny))
         return neighbors
+
+    def generate_border_rocks(self):
+        """Generate rock boundary around map edges."""
+        rocks_added = 0
+        # Top and bottom edges
+        for x in range(self.width):
+            if (x, 0) not in self.cells:
+                rock = Rock(name=f"Border Rock", pos=(x, 0))
+                self.add_object(rock, (x, 0))
+                rocks_added += 1
+            if (x, self.height - 1) not in self.cells:
+                rock = Rock(name=f"Border Rock", pos=(x, self.height - 1))
+                self.add_object(rock, (x, self.height - 1))
+                rocks_added += 1
+        # Left and right edges
+        for y in range(1, self.height - 1):
+            if (0, y) not in self.cells:
+                rock = Rock(name=f"Border Rock", pos=(0, y))
+                self.add_object(rock, (0, y))
+                rocks_added += 1
+            if (self.width - 1, y) not in self.cells:
+                rock = Rock(name=f"Border Rock", pos=(self.width - 1, y))
+                self.add_object(rock, (self.width - 1, y))
+                rocks_added += 1
+        return rocks_added
+
+    def generate_terrain_rocks(self, density: float = 0.05, cluster_size: int = 3):
+        """Generate natural-looking rock formations inside the map.
+        
+        Args:
+            density: Probability of a rock cluster starting (0.0 to 1.0)
+            cluster_size: Average size of rock clusters
+        """
+        rocks_added = 0
+        # Avoid edges (already have border rocks)
+        for y in range(2, self.height - 2):
+            for x in range(2, self.width - 2):
+                # Skip if already occupied
+                if (x, y) in self.cells:
+                    continue
+                
+                # Random chance to start a cluster
+                if random.random() < density:
+                    # Create a cluster of rocks
+                    cluster_positions = self._generate_rock_cluster((x, y), cluster_size)
+                    for pos in cluster_positions:
+                        px, py = pos
+                        # Check bounds and if position is free
+                        if (1 <= px < self.width - 1 and 
+                            1 <= py < self.height - 1 and 
+                            pos not in self.cells):
+                            rock = Rock(name="Rock", pos=pos)
+                            self.add_object(rock, pos)
+                            rocks_added += 1
+        return rocks_added
+
+    def _generate_rock_cluster(self, start_pos: tuple, avg_size: int) -> list:
+        """Generate positions for a natural-looking rock cluster using random walk.
+        
+        Args:
+            start_pos: Starting position (x, y)
+            avg_size: Average number of rocks in cluster
+        
+        Returns:
+            List of (x, y) positions
+        """
+        positions = [start_pos]
+        current_pos = start_pos
+        size = max(1, int(random.gauss(avg_size, avg_size / 2)))
+        
+        directions = [(0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, -1), (1, -1), (-1, 1)]
+        
+        for _ in range(size - 1):
+            # Random walk to adjacent position
+            dx, dy = random.choice(directions)
+            new_pos = (current_pos[0] + dx, current_pos[1] + dy)
+            
+            # 70% chance to continue from new position, 30% to return to start
+            if random.random() < 0.7:
+                current_pos = new_pos
+            else:
+                current_pos = start_pos
+            
+            if new_pos not in positions:
+                positions.append(new_pos)
+        
+        return positions
+
+    def generate_full_terrain(self, rock_density: float = 0.05, cluster_size: int = 3):
+        """Generate complete terrain: border rocks + interior rock formations.
+        
+        Args:
+            rock_density: Probability of rock cluster formation (0.0 to 1.0)
+            cluster_size: Average size of rock clusters
+        
+        Returns:
+            Tuple of (border_rocks_added, terrain_rocks_added)
+        """
+        border = self.generate_border_rocks()
+        terrain = self.generate_terrain_rocks(density=rock_density, cluster_size=cluster_size)
+        return border, terrain

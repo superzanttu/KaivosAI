@@ -199,7 +199,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         if cmd == 'help':
             return ("add TYPE [ID] X Y | remove X Y|ID | move X1 Y1 X2 Y2 | "
                     "get X Y | goto ROBOT_ID X Y | list | show | "
-                    "time show|pause|resume|reset|set <s> | demo | reset | quit")
+                    "time show|pause|resume|reset|set <s> | demo | terrain [density] [size] | reset | quit")
         
         if cmd == 'time':
             if not args:
@@ -321,6 +321,30 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             except Exception as e:
                 return f'Error: {e}'
         
+        if cmd == 'terrain':
+            # terrain [density] [cluster_size]
+            density = 0.05
+            cluster_size = 3
+            if len(args) >= 1:
+                try:
+                    density = float(args[0])
+                    if not 0.0 <= density <= 1.0:
+                        return 'Density must be between 0.0 and 1.0'
+                except ValueError:
+                    return 'Density must be a number'
+            if len(args) >= 2:
+                try:
+                    cluster_size = int(args[1])
+                    if cluster_size < 1:
+                        return 'Cluster size must be >= 1'
+                except ValueError:
+                    return 'Cluster size must be an integer'
+            try:
+                border, terrain = game_map.generate_full_terrain(density, cluster_size)
+                return f'Terrain generated: {border} border rocks, {terrain} terrain rocks'
+            except Exception as e:
+                return f'Error: {e}'
+        
         if cmd == 'reset':
             # Clear all objects from map and DB
             for pos in list(game_map.cells.keys()):
@@ -394,6 +418,7 @@ def repl(game_map: Map):
         print("  show [minx maxx miny maxy]     display ASCII map (auto-bounds if omitted)")
         print("  time show|pause|resume|reset   control game clock")
         print("  time set <seconds>             set clock to specific time")
+        print("  terrain [density] [size]       generate terrain (default: 0.05, 3)")
         print("  demo                           add demo objects (mine, storage, base, robot, rock)")
         print("  reset                          clear all objects and reset clock")
         print("  help                           show this help")
@@ -705,6 +730,34 @@ def repl(game_map: Map):
                     pass
             print(f'Added {added} demo objects')
             continue
+        if cmd == 'terrain':
+            # terrain [density] [cluster_size]
+            density = 0.05
+            cluster_size = 3
+            if len(args) >= 1:
+                try:
+                    density = float(args[0])
+                    if not 0.0 <= density <= 1.0:
+                        print('Density must be between 0.0 and 1.0')
+                        continue
+                except ValueError:
+                    print('Density must be a number')
+                    continue
+            if len(args) >= 2:
+                try:
+                    cluster_size = int(args[1])
+                    if cluster_size < 1:
+                        print('Cluster size must be >= 1')
+                        continue
+                except ValueError:
+                    print('Cluster size must be an integer')
+                    continue
+            try:
+                border, terrain = game_map.generate_full_terrain(density, cluster_size)
+                print(f'Terrain generated: {border} border rocks, {terrain} terrain rocks')
+            except Exception as e:
+                print('Error:', e)
+            continue
         print('Unknown command. Type help.')
 
 
@@ -720,14 +773,19 @@ def run_demo():
     # Only add demo objects if database is empty
     existing = list(conn.execute('SELECT COUNT(*) as cnt FROM game_objects').fetchone())
     if existing[0] == 0:
-        print("Empty database detected - adding demo objects...")
-        mine = Mine(id=1, name="Iron Mine", pos=(0, 0), durability=25)
-        storage = Storage(id=2, name="Storage A", pos=(1, 0), capacity=50)
-        base = Base(id=3, name="Base", pos=(2, 0))
-        bot = Robot(id=4, pos=(0, 1), capacity=5)
-        rock = Rock(id=5, name="Boulder", pos=(1, 1))
+        print("Empty database detected - generating terrain and adding demo objects...")
+        
+        # Generate terrain first
+        border, terrain = game_map.generate_full_terrain(rock_density=0.03, cluster_size=4)
+        print(f"Terrain generated: {border} border rocks, {terrain} terrain rocks")
+        
+        # Add demo objects in safe interior positions
+        mine = Mine(id=1, name="Iron Mine", pos=(5, 5), durability=25)
+        storage = Storage(id=2, name="Storage A", pos=(6, 5), capacity=50)
+        base = Base(id=3, name="Base", pos=(7, 5))
+        bot = Robot(id=4, pos=(5, 6), capacity=5)
 
-        for obj in (mine, storage, base, rock, bot):
+        for obj in (mine, storage, base, bot):
             game_map.add_object(obj, obj.pos)
         print("Demo objects added. Use 'demo' command to recreate or 'reset' to clear.")
 
