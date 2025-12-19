@@ -100,17 +100,63 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             lines.append(f"{oid:2} {name:12s} ({x:2},{y:2})")
         return '\n'.join(lines) if lines else 'No objects'
     
+    # 2x3 block digit render (width=2, height=3) using simple segments
+    _digit_segments = {
+        '0': (1,1,1,1,1,1,0),  # top, ul, ur, mid, ll, lr, bot
+        '1': (0,0,1,0,0,1,0),
+        '2': (1,0,1,1,1,0,1),
+        '3': (1,0,1,1,0,1,1),
+        '4': (0,1,1,1,0,1,0),
+        '5': (1,1,0,1,0,1,1),
+        '6': (1,1,0,1,1,1,1),
+        '7': (1,0,1,0,0,1,0),
+        '8': (1,1,1,1,1,1,1),
+        '9': (1,1,1,1,0,1,1),
+    }
+
+    def _render_digit(ch: str):
+        if ch == ':':
+            dot = '#'
+            return ['  ', f' {dot}', '  ']
+        segs = _digit_segments.get(ch, (0,0,0,0,0,0,0))
+        top, ul, ur, mid, ll, lr, bot = segs
+        rows = []
+        # row0: top segment
+        rows.append('##' if top else '  ')
+        # row1: middle (if on) else verticals
+        if mid:
+            rows.append('##')
+        else:
+            left = '#' if ul else ' '
+            right = '#' if ur else ' '
+            rows.append(left + right)
+        # row2: bottom
+        rows.append('##' if bot else '  ')
+        return rows
+
     def build_clock_display():
-        """Build clock display."""
+        """Build clock display with block digits plus week/day line."""
         try:
             sec = clock.seconds
             hh = (sec % 86400) // 3600
             mm = (sec % 3600) // 60
             ss = sec % 60
-            colon = ':' if (ss % 2) == 0 else ' '
-            return f" {hh:02d}{colon}{mm:02d}{colon}{ss:02d}"
+            week = (sec // 86400) // 7 + 1
+            day = (sec // 86400) % 7 + 1
+            # Build block time
+            tstr = f"{hh:02d}:{mm:02d}:{ss:02d}"
+            rows = ['','','']
+            blink = (ss % 2) == 0
+                for ch in tstr:
+                    glyph = _render_digit(ch)
+                # For colon, blink by replacing with spaces when off
+                if ch == ':' and not blink:
+                    glyph = ['  ','  ','  ']
+                rows = [r + glyph[i] + ' ' for i, r in enumerate(rows)]
+            header = f"Week {week} Day {day}"
+            return header + "\n" + "\n".join(rows)
         except Exception:
-            return " --:--:--"
+            return "--\n--"
     
     def refresh_display(loop=None, user_data=None):
         """Update all display widgets."""

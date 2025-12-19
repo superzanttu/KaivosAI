@@ -25,7 +25,7 @@ python -m kaivosai.cli
 The TUI uses [Urwid](https://urwid.org/) to display:
 - **Map panel**: live ASCII map with auto-centering
 - **Objects panel**: real-time list of all game objects
-- **Clock panel**: game time in HH:MM:SS format
+- **Clock panel**: block-digit HH:MM:SS plus Week/Day summary (blinking colon)
 - **Status panel**: command feedback
 - **Command input**: type commands and press Enter
 
