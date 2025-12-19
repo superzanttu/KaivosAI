@@ -1,6 +1,0 @@
-Fix: correct 7-seg mapping for '0' (remove middle bar, add bottom segment) to render proper zeros in Clock panel.
-Tweak: reduce Clock panel size by switching to compact 3x5 box-drawing digits and abbreviating header to W# D# with minimal spacing.
-Update: restore full clock format to W# D# HH:MM:SS in header with compact 3x5 digit glyphs below.
-Remove: large box-drawing digit display; keep only W# D# HH:MM:SS text format for minimal clock panel footprint.
-Enhance: improve goto command feedback with list of available robot IDs when robot not found or command fails.
-Refactor: completely reimplemented robot movement system for clarity and reliability. Replaced complex background threading with explicit tick_movement() calls from the UI refresh loop. Movement state now stored directly on Robot objects rather than in separate dictionaries. Simplified pathfinding algorithm and eliminated lock contention. Movement now advances smoothly with display updates.

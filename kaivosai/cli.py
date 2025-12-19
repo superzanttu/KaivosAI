@@ -197,9 +197,9 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             raise urwid.ExitMainLoop()
         
         if cmd == 'help':
-            return ("Commands: add TYPE [ID] X Y | remove X Y | move X1 Y1 X2 Y2 | "
-                    "list | get X Y | show | time show|pause|resume|reset|set <s> | "
-                    "reset | demo | quit")
+            return ("add TYPE [ID] X Y | remove X Y|ID | move X1 Y1 X2 Y2 | "
+                    "get X Y | goto ROBOT_ID X Y | list | show | "
+                    "time show|pause|resume|reset|set <s> | demo | reset | quit")
         
         if cmd == 'time':
             if not args:
@@ -385,18 +385,19 @@ def repl(game_map: Map):
 
     def show_help():
         print("Commands:")
-        print("  add TYPE [ID] X Y         - add object (ID optional; omitted = auto-assigned)")
-        print("  remove X Y                - remove object at position")
-        print("  goto ROBOT_ID X Y         - command robot to move to X Y")
-        print("  move X1 Y1 X2 Y2          - move object")
-        print("  list                      - list all objects")
-        print("  get X Y                   - show object at position")
-        print("  show [minx maxx miny maxy]- show ASCII map (auto-bounds if omitted)")
-        print("  time show|pause|resume|reset|set <seconds> - control game clock")
-        print("  reset                     - clear all objects and reset clock")
-        print("  demo                      - add demo objects to map")
-        print("  help                      - show this help")
-        print("  quit                      - exit")
+        print("  add TYPE [ID] X Y              add object (ID auto-assigned if omitted)")
+        print("  remove X Y | remove ID         remove object at position or by ID")
+        print("  move X1 Y1 X2 Y2               move object between positions")
+        print("  get X Y                        show object at position")
+        print("  goto ROBOT_ID X Y              command robot to move to target")
+        print("  list                           list all objects")
+        print("  show [minx maxx miny maxy]     display ASCII map (auto-bounds if omitted)")
+        print("  time show|pause|resume|reset   control game clock")
+        print("  time set <seconds>             set clock to specific time")
+        print("  demo                           add demo objects (mine, storage, base, robot, rock)")
+        print("  reset                          clear all objects and reset clock")
+        print("  help                           show this help")
+        print("  quit                           exit")
 
     def ascii_map(minx, maxx, miny, maxy):
         w = maxx - minx + 1
