@@ -886,36 +886,51 @@ def run_demo():
     init_game_db(conn)
     game_map = Map(width=50, height=50, conn=conn)
     # Start game clock (persistent)
-    clock = GameClock(conn)        # Add demo objects in safe interior positions (IDs auto-assigned to avoid conflicts)
-    clock.start()5), durability=25)
-    os=(6, 5), capacity=50)
+    clock = GameClock(conn)
+    clock.start()
+    
     # Only add demo objects if database is empty
-    existing = list(conn.execute('SELECT COUNT(*) as cnt FROM game_objects').fetchone())        bot = Robot(name="Bot", pos=(5, 6), capacity=5)
+    existing = list(conn.execute('SELECT COUNT(*) as cnt FROM game_objects').fetchone())
     if existing[0] == 0:
-        print("Empty database detected - generating terrain and adding demo objects...")storage, base, bot):
-        game_map.add_object(obj, obj.pos)
-        # Generate terrain first        print("Demo objects added. Use 'demo' command to recreate or 'reset' to clear.")
+        print("Empty database detected - generating terrain and adding demo objects...")
+        
+        # Generate terrain first
         border, terrain = game_map.generate_full_terrain(rock_density=0.03, cluster_size=4)
-        print(f"Terrain generated: {border} border rocks, {terrain} terrain rocks")    if URWID_AVAILABLE:
-                # Launch Urwid TUI
+        print(f"Terrain generated: {border} border rocks, {terrain} terrain rocks")
+        
+        # Add demo objects in safe interior positions (IDs auto-assigned to avoid conflicts)
+        mine = Mine(name="Iron Mine", pos=(5, 5), durability=25)
+        storage = Storage(name="Storage A", pos=(6, 5), capacity=50)
+        base = Base(name="Base", pos=(7, 5))
+        bot = Robot(name="Bot", pos=(5, 6), capacity=5)
+
+        for obj in (mine, storage, base, bot):
+            game_map.add_object(obj, obj.pos)
+        print("Demo objects added. Use 'demo' command to recreate or 'reset' to clear.")
+
+    if URWID_AVAILABLE:
+        # Launch Urwid TUI
         try:
-        for obj in (mine, storage, base, bot):            clock.reset()        if clock:        clock = getattr(game_map, 'clock', None)                pass            except Exception:                game_map.conn.commit()                game_map.conn.execute("DELETE FROM sqlite_sequence WHERE name='game_objects'")            try:        if game_map.conn:            game_map.remove_object(pos)        for pos in list(game_map.cells.keys()):        # Cleanup: remove all objects and reset clock    finally:            pass        except Exception:            repl(game_map)        try:        # Fallback to REPL    else:                pass            except Exception:                clock.stop()            try:        finally:            run_urwid_tui(game_map, clock, conn)            except Exception:
-            game_map.add_object(obj, obj.pos)                pass
-        print("Demo objects added. Use 'demo' command to recreate or 'reset' to clear.")            conn.close()
-    else:
-    if URWID_AVAILABLE:        # Fallback to old REPL
-        # Launch Urwid TUI        print("Map initial contents:")
-        try:        for p, o in sorted(game_map.cells.items()):
-            clock.reset()        if clock:        clock = getattr(game_map, 'clock', None)                pass            except Exception:                game_map.conn.commit()                game_map.conn.execute("DELETE FROM sqlite_sequence WHERE name='game_objects'")            try:        if game_map.conn:            game_map.remove_object(pos)        for pos in list(game_map.cells.keys()):        # Cleanup: remove all objects and reset clock    finally:            pass        except Exception:            repl(game_map)        try:        # Fallback to REPL    else:                pass            except Exception:                clock.stop()            try:        finally:            run_urwid_tui(game_map, clock, conn)            except Exception:            print(p, type(o).__name__, getattr(o, 'id', None))
-                pass
-            conn.close()        print("\nEntering interactive command prompt. Type 'help' for commands.")
-    else:        try:
-        # Fallback to old REPL            repl(game_map)
-        print("Map initial contents:")        finally:
-        for p, o in sorted(game_map.cells.items()):            # stop clock thread if present
-            print(p, type(o).__name__, getattr(o, 'id', None))            try:
+            run_urwid_tui(game_map, clock, conn)
+        finally:
+            try:
                 clock.stop()
-        print("\nEntering interactive command prompt. Type 'help' for commands.")            except Exception:
-        try:                pass
-            repl(game_map)            conn.close()
-        finally:            # stop clock thread if present            try:                clock.stop()            except Exception:                pass            conn.close()
+            except Exception:
+                pass
+            conn.close()
+    else:
+        # Fallback to old REPL
+        print("Map initial contents:")
+        for p, o in sorted(game_map.cells.items()):
+            print(p, type(o).__name__, getattr(o, 'id', None))
+
+        print("\nEntering interactive command prompt. Type 'help' for commands.")
+        try:
+            repl(game_map)
+        finally:
+            # stop clock thread if present
+            try:
+                clock.stop()
+            except Exception:
+                pass
+            conn.close()
