@@ -94,6 +94,9 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         """Build object list display."""
         lines: List[str] = []
         for p, o in sorted(game_map.cells.items(), key=lambda kv: (getattr(kv[1], 'id', 0) or 0)):
+            # Skip rocks in object list
+            if isinstance(o, Rock):
+                continue
             oid = getattr(o, 'id', None)
             name = getattr(o, 'name', None) or type(o).__name__
             x, y = p
@@ -627,6 +630,9 @@ def repl(game_map: Map):
             # Print header
             print('ID NAME X Y')
             for p, o in sorted(game_map.cells.items(), key=lambda kv: (getattr(kv[1], 'id', 0) or 0)):
+                # Skip rocks in object list
+                if isinstance(o, Rock):
+                    continue
                 oid = getattr(o, 'id', None)
                 name = getattr(o, 'name', None) or type(o).__name__
                 x, y = p
@@ -779,11 +785,11 @@ def run_demo():
         border, terrain = game_map.generate_full_terrain(rock_density=0.03, cluster_size=4)
         print(f"Terrain generated: {border} border rocks, {terrain} terrain rocks")
         
-        # Add demo objects in safe interior positions
-        mine = Mine(id=1, name="Iron Mine", pos=(5, 5), durability=25)
-        storage = Storage(id=2, name="Storage A", pos=(6, 5), capacity=50)
-        base = Base(id=3, name="Base", pos=(7, 5))
-        bot = Robot(id=4, pos=(5, 6), capacity=5)
+        # Add demo objects in safe interior positions (IDs auto-assigned to avoid conflicts)
+        mine = Mine(name="Iron Mine", pos=(5, 5), durability=25)
+        storage = Storage(name="Storage A", pos=(6, 5), capacity=50)
+        base = Base(name="Base", pos=(7, 5))
+        bot = Robot(name="Bot", pos=(5, 6), capacity=5)
 
         for obj in (mine, storage, base, bot):
             game_map.add_object(obj, obj.pos)
