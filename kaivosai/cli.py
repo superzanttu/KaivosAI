@@ -102,7 +102,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
     
     # 2x3 block digit render (width=2, height=3) using simple segments
     _digit_segments = {
-        '0': (1,1,1,1,1,1,0),  # top, ul, ur, mid, ll, lr, bot
+        '0': (1,1,1,0,1,1,1),  # top, ul, ur, mid, ll, lr, bot
         '1': (0,0,1,0,0,1,0),
         '2': (1,0,1,1,1,0,1),
         '3': (1,0,1,1,0,1,1),
@@ -115,23 +115,43 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
     }
 
     def _render_digit(ch: str):
+        """Render a single digit using compact box-drawing characters (width=3, height=5).
+        Uses a 7-segment mapping: top, ul, ur, mid, ll, lr, bot.
+        """
         if ch == ':':
-            dot = '#'
-            return ['  ', f' {dot}', '  ']
-        segs = _digit_segments.get(ch, (0,0,0,0,0,0,0))
-        top, ul, ur, mid, ll, lr, bot = segs
+            # Compact five-row colon; blink handled by caller
+            return ['   ', ' · ', '   ', ' · ', '   ']
+        top, ul, ur, mid, ll, lr, bot = _digit_segments.get(ch, (0, 0, 0, 0, 0, 0, 0))
         rows = []
-        # row0: top segment
-        rows.append('##' if top else '  ')
-        # row1: middle (if on) else verticals
-        if mid:
-            rows.append('##')
+        # Row 0: top segment or upper verticals
+        if top:
+            rows.append('┌─┐')
         else:
-            left = '#' if ul else ' '
-            right = '#' if ur else ' '
-            rows.append(left + right)
-        # row2: bottom
-        rows.append('##' if bot else '  ')
+            left = '│' if ul else ' '
+            right = '│' if ur else ' '
+            rows.append(left + ' ' + right)
+        # Row 1: upper verticals
+        left = '│' if ul else ' '
+        right = '│' if ur else ' '
+        rows.append(left + ' ' + right)
+        # Row 2: middle segment or verticals
+        if mid:
+            left = '│' if ul else ' '
+            right = '│' if ur else ' '
+            rows.append(left + '─' + right)
+        else:
+            left = '│' if ul else ' '
+            right = '│' if ur else ' '
+            rows.append(left + ' ' + right)
+        # Row 3: lower verticals
+        left = '│' if ll else ' '
+        right = '│' if lr else ' '
+        rows.append(left + ' ' + right)
+        # Row 4: bottom segment or spaces
+        if bot:
+            rows.append('└─┘')
+        else:
+            rows.append('   ')
         return rows
 
     def build_clock_display():
@@ -145,15 +165,16 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             day = (sec // 86400) % 7 + 1
             # Build block time
             tstr = f"{hh:02d}:{mm:02d}:{ss:02d}"
-            rows = ['','','']
+            rows = ['', '', '', '', '']
             blink = (ss % 2) == 0
-                for ch in tstr:
-                    glyph = _render_digit(ch)
+            for ch in tstr:
+                glyph = _render_digit(ch)
                 # For colon, blink by replacing with spaces when off
                 if ch == ':' and not blink:
-                    glyph = ['  ','  ','  ']
-                rows = [r + glyph[i] + ' ' for i, r in enumerate(rows)]
-            header = f"Week {week} Day {day}"
+                    glyph = ['   ', '   ', '   ', '   ', '   ']
+                # minimal spacing between glyphs for compact width
+                rows = [r + glyph[i] + (' ' if ch != tstr[-1] else '') for i, r in enumerate(rows)]
+            header = f"W{week} D{day}"
             return header + "\n" + "\n".join(rows)
         except Exception:
             return "--\n--"

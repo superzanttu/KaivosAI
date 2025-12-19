@@ -1,0 +1,4 @@
+Fix: correct indentation in build_clock_display() in kaivosai/cli.py to resolve IndentationError and restore TUI startup.
+Enhancement: render clock digits using box-drawing characters (╔═╗, ║, ╚═╝) for clearer TUI numbers; blinking colon retained.
+Enhancement: upgrade clock font to 4x5 box-drawing digits (┌──┐/│/└──┘ with mid row), improved legibility and spacing in Clock panel.
+Fix: correct 7-seg mapping for '0' (remove middle bar, add bottom segment) to render proper zeros in Clock panel.
