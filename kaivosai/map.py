@@ -33,15 +33,8 @@ class Map:
                     obj.inventory = r['inventory'] or 0
                 self.cells[pos] = obj
 
-            # movement/tasking state
-            self._movement_lock = threading.Lock()
-            # robot id -> target position
-            self._targets: Dict[int, Position] = {}
-            # robot id -> path (list of positions to step through)
-            self._paths: Dict[int, List[Position]] = {}
-            self._movement_thread: Optional[threading.Thread] = None
-            self._movement_stop = threading.Event()
-            self._clock = None
+        # Simpler movement system: robots store their own state
+        # No background thread; movement happens on explicit tick_movement() calls
 
     def in_bounds(self, pos: Position) -> bool:
         x, y = pos
@@ -134,180 +127,153 @@ class Map:
             persist_object(self.conn, obj)
         return True
 
-    # ----------------- Movement / pathfinding -----------------
-    def set_clock(self, clock):
-        """Attach a GameClock instance to the map and start the movement loop."""
-        self._clock = clock
-        # start movement thread if not running
-        if self._movement_thread and self._movement_thread.is_alive():
-            return
-        self._movement_stop.clear()
-        self._movement_thread = threading.Thread(target=self._movement_loop, daemon=True)
-        self._movement_thread.start()
-
-    def stop_movement(self):
-        self._movement_stop.set()
-        if self._movement_thread:
-            self._movement_thread.join(timeout=1)
-
+    # ==================== Movement System ====================
+    # Robots can be assigned movement targets. Each robot stores its own path.
+    # Call tick_movement() once per game second to advance all robots one step.
+    
     def command_move_robot(self, robot_id: int, target: Position) -> bool:
-        """Assign a robot to move to target. Returns True if a task was started."""
-        # find robot by id
+        """Assign a robot to move to a target position.
+        
+        Returns True if movement started, False if already at target or no path found.
+        Raises ValueError if robot not found or target invalid.
+        """
+        # Find robot by ID
         robot = None
-        for o in self.cells.values():
-            if isinstance(o, Robot) and getattr(o, 'id', None) == robot_id:
-                robot = o
+        robot_pos = None
+        for pos, obj in self.cells.items():
+            if isinstance(obj, Robot) and getattr(obj, 'id', None) == robot_id:
+                robot = obj
+                robot_pos = pos
                 break
+        
         if robot is None:
-            raise ValueError('Robot id not found')
+            raise ValueError(f'Robot id {robot_id} not found')
+        
         if not self.in_bounds(target):
-            raise ValueError('Target out of bounds')
-        if target == robot.pos:
-            return False
-        # prohibit targeting occupied cell
+            raise ValueError(f'Target {target} out of bounds')
+        
+        if robot_pos == target:
+            return False  # Already at target
+        
         if target in self.cells:
-            raise ValueError('Target cell is occupied')
-
-        # compute initial path
-        path = self._find_path(robot.pos, target)
+            raise ValueError(f'Target {target} is occupied')
+        
+        # Compute path using BFS
+        path = self._find_path(robot_pos, target)
         if not path:
-            # no path available now
-            return False
-
-        with self._movement_lock:
-            self._targets[robot_id] = target
-            self._paths[robot_id] = path
+            return False  # No path available
+        
+        # Store movement state on the robot object itself
+        robot._move_target = target
+        robot._move_path = path
         return True
-
-    def _neighbors(self, pos: Position) -> List[Position]:
-        x, y = pos
-        for nx, ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1)):
-            yield (nx, ny)
+    
+    def tick_movement(self):
+        """Advance all robots one step along their paths.
+        
+        Call this once per game second (or as needed). Each robot takes one step
+        toward its goal. If a path is blocked, it's recomputed.
+        """
+        # Find all robots with active movement targets
+        for pos, obj in list(self.cells.items()):
+            if not isinstance(obj, Robot):
+                continue
+            
+            target = getattr(obj, '_move_target', None)
+            path = getattr(obj, '_move_path', None)
+            
+            if target is None or path is None or len(path) == 0:
+                # No active movement
+                continue
+            
+            # Check if robot is still where we expect
+            if pos not in self.cells or self.cells[pos] is not obj:
+                # Robot was removed or moved externally; clear movement
+                obj._move_target = None
+                obj._move_path = None
+                continue
+            
+            # Try to take the next step
+            next_pos = path[0]
+            
+            if next_pos not in self.cells:
+                # Path is still clear; move robot
+                try:
+                    self.move_object(pos, next_pos)
+                    # Remove taken step from path
+                    obj._move_path = path[1:]
+                    
+                    # Check if we've reached the target
+                    if next_pos == target:
+                        obj._move_target = None
+                        obj._move_path = None
+                except Exception:
+                    # Move failed; clear the movement
+                    obj._move_target = None
+                    obj._move_path = None
+            else:
+                # Next step is blocked; try to recompute path
+                new_path = self._find_path(next_pos, target)
+                if new_path:
+                    obj._move_path = new_path
+                else:
+                    # No path available; give up
+                    obj._move_target = None
+                    obj._move_path = None
+    
+    # ==================== Pathfinding ====================
 
     def _find_path(self, start: Position, goal: Position) -> List[Position]:
-        """Simple BFS pathfinder avoiding occupied cells (except start). Returns list of positions (excluding start) to follow."""
+        """Find a path from start to goal using BFS.
+        
+        Returns a list of positions (including goal, excluding start) to follow.
+        Returns empty list if no path exists.
+        """
         from collections import deque
+        
         if start == goal:
             return []
-        q = deque()
-        q.append(start)
-        prev = {start: None}
-        obstacles = set(self.cells.keys())
-        # allow start to be treated as free
-        obstacles.discard(start)
-        # do not allow entering goal if occupied
-        if goal in obstacles:
-            return []
-
-        found = False
-        while q:
-            cur = q.popleft()
-            for n in self._neighbors(cur):
-                if not self.in_bounds(n):
+        
+        queue = deque([start])
+        visited = {start}
+        parent = {start: None}
+        
+        while queue:
+            current = queue.popleft()
+            
+            # Check all four cardinal neighbors
+            for neighbor in self._neighbors(current):
+                if not self.in_bounds(neighbor):
                     continue
-                if n in prev:
+                if neighbor in visited:
                     continue
-                if n in obstacles:
+                
+                # Allow moving through free cells or the goal
+                if neighbor in self.cells and neighbor != goal:
                     continue
-                prev[n] = cur
-                if n == goal:
-                    found = True
-                    q.clear()
-                    break
-                q.append(n)
-        if not found:
-            return []
-        # reconstruct path
-        path = []
-        cur = goal
-        while cur != start:
-            path.append(cur)
-            cur = prev[cur]
-        path.reverse()
-        return path
-
-    def _movement_loop(self):
-        last_sec = None
-        last_time = time.monotonic()
-        while not self._movement_stop.is_set():
-            # try to use game clock seconds when available; otherwise fall back to monotonic wall time
-            sec = None
-            try:
-                if self._clock is not None:
-                    sec = int(self._clock.seconds)
-            except Exception:
-                sec = None
-
-            now = time.monotonic()
-            # if we have a clock-sec value, step when it increases
-            if sec is not None:
-                if last_sec is None:
-                    last_sec = sec
-                elif sec > last_sec:
-                    last_sec = sec
-                    self._step_movement()
-                    last_time = now
-            else:
-                # fallback: step every ~1.0 second of wall time
-                if now - last_time >= 1.0:
-                    last_time = now
-                    self._step_movement()
-
-            # wait briefly to be responsive to stop
-            if self._movement_stop.wait(0.1):
-                break
-
-    def _step_movement(self):
-        """Perform one movement tick: try to move each tasked robot one step."""
-        # copy ids to avoid modification during iteration
-        with self._movement_lock:
-            robot_ids = list(self._targets.keys())
-
-        for rid in robot_ids:
-            with self._movement_lock:
-                path = self._paths.get(rid)
-                target = self._targets.get(rid)
-            # ensure robot still exists and find its current pos
-            robot_pos = None
-            robot_obj = None
-            for p,o in self.cells.items():
-                if isinstance(o, Robot) and getattr(o, 'id', None) == rid:
-                    robot_pos = p
-                    robot_obj = o
-                    break
-            if robot_pos is None:
-                # robot removed
-                with self._movement_lock:
-                    self._targets.pop(rid, None)
-                    self._paths.pop(rid, None)
-                continue
-
-            if not path:
-                # nothing to do or no path
-                continue
-
-            next_step = path[0]
-            # if next step is free, move
-            if next_step not in self.cells:
-                try:
-                    self.move_object(robot_pos, next_step)
-                except Exception:
-                    # move failed unexpectedly; try to recompute path
-                    new_path = self._find_path(robot_pos, target)
-                    with self._movement_lock:
-                        self._paths[rid] = new_path
-                    continue
-                # moved: pop step
-                with self._movement_lock:
-                    self._paths[rid] = self._paths[rid][1:]
-                    if not self._paths[rid]:
-                        # reached target
-                        self._targets.pop(rid, None)
-                        self._paths.pop(rid, None)
-                continue
-
-            # blocked: attempt to recompute path around obstacle
-            new_path = self._find_path(robot_pos, target)
-            with self._movement_lock:
-                self._paths[rid] = new_path
-            # if no new path, leave for next tick
+                
+                visited.add(neighbor)
+                parent[neighbor] = current
+                
+                if neighbor == goal:
+                    # Reconstruct path
+                    path = []
+                    node = goal
+                    while node is not None:
+                        path.append(node)
+                        node = parent[node]
+                    path.reverse()
+                    return path[1:]  # Exclude start
+                
+                queue.append(neighbor)
+        
+        return []  # No path found
+    
+    def _neighbors(self, pos: Position) -> List[Position]:
+        """Return valid neighboring positions (4-directional: up, down, left, right)."""
+        x, y = pos
+        neighbors = []
+        for nx, ny in [(x+1, y), (x-1, y), (x, y+1), (x, y-1)]:
+            if self.in_bounds((nx, ny)):
+                neighbors.append((nx, ny))
+        return neighbors

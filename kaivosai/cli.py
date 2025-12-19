@@ -155,7 +155,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         return rows
 
     def build_clock_display():
-        """Build clock display with block digits plus week/day line."""
+        """Build clock display with week/day and time text only."""
         try:
             sec = clock.seconds
             hh = (sec % 86400) // 3600
@@ -163,24 +163,14 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             ss = sec % 60
             week = (sec // 86400) // 7 + 1
             day = (sec // 86400) % 7 + 1
-            # Build block time
-            tstr = f"{hh:02d}:{mm:02d}:{ss:02d}"
-            rows = ['', '', '', '', '']
-            blink = (ss % 2) == 0
-            for ch in tstr:
-                glyph = _render_digit(ch)
-                # For colon, blink by replacing with spaces when off
-                if ch == ':' and not blink:
-                    glyph = ['   ', '   ', '   ', '   ', '   ']
-                # minimal spacing between glyphs for compact width
-                rows = [r + glyph[i] + (' ' if ch != tstr[-1] else '') for i, r in enumerate(rows)]
-            header = f"W{week} D{day}"
-            return header + "\n" + "\n".join(rows)
+            return f"W{week} D{day}  {hh:02d}:{mm:02d}:{ss:02d}"
         except Exception:
-            return "--\n--"
+            return "--:--:--"
     
     def refresh_display(loop=None, user_data=None):
-        """Update all display widgets."""
+        """Update all display widgets and tick robot movement."""
+        # Advance robot movement each refresh (simple steady state)
+        game_map.tick_movement()
         map_text.set_text(build_map_display())
         object_list_text.set_text(build_object_list())
         clock_text.set_text(build_clock_display())
@@ -313,12 +303,21 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                 rid = int(args[0]); x = int(args[1]); y = int(args[2])
             except ValueError:
                 return 'ROBOT_ID,X,Y must be integers'
+            # Debug: list available robots
+            robots = [(getattr(o, 'id', None), p) for p, o in game_map.cells.items() if isinstance(o, Robot)]
+            if not robots:
+                return 'No robots available'
+            available_ids = [rid_val for rid_val, _ in robots]
             try:
                 started = game_map.command_move_robot(rid, (x, y))
                 if started:
                     return f'Robot {rid} moving to ({x},{y})'
                 else:
                     return 'No path available or already at target'
+            except ValueError as e:
+                if 'Robot id not found' in str(e):
+                    return f'Robot {rid} not found. Available: {available_ids}'
+                return f'Error: {e}'
             except Exception as e:
                 return f'Error: {e}'
         
@@ -648,12 +647,23 @@ def repl(game_map: Map):
             except ValueError:
                 print('ROBOT_ID,X,Y must be integers')
                 continue
+            # Debug: list available robots
+            robots = [(getattr(o, 'id', None), p) for p, o in game_map.cells.items() if isinstance(o, Robot)]
+            if not robots:
+                print('No robots available')
+                continue
+            available_ids = [rid_val for rid_val, _ in robots]
             try:
                 started = game_map.command_move_robot(rid, (x, y))
                 if started:
                     print(f'Robot {rid} moving to {(x,y)}')
                 else:
                     print('No path available or already at target')
+            except ValueError as e:
+                if 'Robot id not found' in str(e):
+                    print(f'Robot {rid} not found. Available: {available_ids}')
+                else:
+                    print('Error:', e)
             except Exception as e:
                 print('Error:', e)
             continue
@@ -702,10 +712,8 @@ def run_demo():
     conn = get_game_conn()
     init_game_db(conn)
     game_map = Map(width=50, height=50, conn=conn)
-    # start game clock (persistent)
+    # Start game clock (persistent)
     clock = GameClock(conn)
-    game_map.clock = clock
-    game_map.set_clock(clock)
     clock.start()
     
     # Only add demo objects if database is empty
