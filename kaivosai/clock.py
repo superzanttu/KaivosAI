@@ -51,6 +51,8 @@ class GameClock:
 
         # ensure meta keys exist
         self._ensure_meta()
+        self._stop_flag = False
+        self._immediate_stop = False  # New flag for immediate shutdown
 
     def _ensure_meta(self):
         cur = self.conn.execute("SELECT key FROM game_meta")
@@ -158,10 +160,11 @@ class GameClock:
         self.seconds = int(s)
 
     def stop(self):
-        self.running = False
+        """Stop the clock thread immediately."""
+        self._immediate_stop = True
         self._stop.set()
         if self._thread:
-            self._thread.join(timeout=1)
+            self._thread.join(timeout=0.2)  # Wait max 0.2 seconds
 
     def _run_loop(self):
         # Tick in response to real elapsed time using monotonic clock so

@@ -913,10 +913,7 @@ def run_demo():
         try:
             run_urwid_tui(game_map, clock, conn)
         finally:
-            try:
-                clock.stop()
-            except Exception:
-                pass
+            clock.stop()  # Stop immediately (no try/except to mask errors)
             conn.close()
     else:
         # Fallback to old REPL
@@ -928,9 +925,5 @@ def run_demo():
         try:
             repl(game_map)
         finally:
-            # stop clock thread if present
-            try:
-                clock.stop()
-            except Exception:
-                pass
+            clock.stop()  # Stop immediately
             conn.close()
