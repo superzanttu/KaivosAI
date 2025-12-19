@@ -1,3 +1,0 @@
-chore: document block-digit clock in README
-
-- Clock panel description now mentions block-digit HH:MM:SS with Week/Day summary
