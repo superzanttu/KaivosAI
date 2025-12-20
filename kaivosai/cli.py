@@ -1,11 +1,15 @@
 """CLI and Urwid TUI for KaivosAI."""
 from typing import Tuple, List
 import shlex
+import random
+import time
+import os
 
 from .db import get_game_conn, init_game_db
 from .map import Map
 from .models import Robot, Mine, Storage, Base, Rock, create_object
 from .clock import GameClock
+from . import VERSION
 
 Position = Tuple[int, int]
 
@@ -14,6 +18,16 @@ import urwid  # type: ignore
 
 def run_urwid_tui(game_map: Map, clock: GameClock, conn):
     """Run the Urwid-based TUI with map, object list, clock and command input."""
+    
+    # Define color palette
+    palette = [
+        ('robot', 'light cyan', 'default'),
+        ('mine', 'yellow', 'default'),
+        ('storage', 'light green', 'default'),
+        ('base', 'light magenta', 'default'),
+        ('rock', 'dark gray', 'default'),
+        ('empty', 'dark gray', 'default'),
+    ]
     
     # Widgets
     map_text = urwid.Text('', align='left')
@@ -25,7 +39,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
     # Layout: map on left, object list + clock on right, status + input at bottom
     map_box = urwid.LineBox(urwid.Filler(map_text, valign='top'), title='Map')
     info_pile = urwid.Pile([
-        urwid.LineBox(clock_text, title='Clock'),
+        urwid.LineBox(clock_text, title=f'Clock - KaivosAI v{VERSION}'),
         urwid.LineBox(urwid.Filler(object_list_text, valign='top'), title='Objects'),
     ])
     top_columns = urwid.Columns([
@@ -40,7 +54,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
     ])
     
     def build_map_display():
-        """Build ASCII map text."""
+        """Build ASCII map text with color markup."""
         if not game_map.cells:
             minx = 0; miny = 0; maxx = 9; maxy = 9
         else:
@@ -53,37 +67,46 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         
         w = maxx - minx + 1
         h = maxy - miny + 1
-        if w > 80 or h > 40:
-            return f"Region too large ({w}x{h})"
+        if w > 120 or h > 60:
+            return [("Region too large (", f"{w}x{h})")]
         
-        grid = [["." for _ in range(w)] for __ in range(h)]
+        # Build markup list for colored text
+        markup = []
+        
+        # Column labels
+        col_labels = '   ' + ' '.join(str(x % 10) for x in range(minx, maxx + 1)) + '\n'
+        markup.append(col_labels)
+        
+        # Build grid with colors
         for y in range(miny, maxy + 1):
+            # Row label
+            markup.append(f"{y:2d} ")
             for x in range(minx, maxx + 1):
                 obj = game_map.get((x, y))
-                ch = '.'
                 if obj is None:
-                    ch = '.'
+                    markup.append(('empty', '. '))
                 elif isinstance(obj, Robot):
-                    ch = 'R'
+                    markup.append(('robot', 'R '))
                 elif isinstance(obj, Mine):
-                    ch = 'M'
+                    markup.append(('mine', 'M '))
                 elif isinstance(obj, Storage):
-                    ch = 'S'
+                    markup.append(('storage', 'S '))
                 elif isinstance(obj, Base):
-                    ch = 'B'
+                    markup.append(('base', 'B '))
                 elif isinstance(obj, Rock):
-                    ch = '#'
+                    markup.append(('rock', '# '))
                 else:
-                    ch = '?'
-                grid[y - miny][x - minx] = ch
+                    markup.append('? ')
+            markup.append('\n')
         
-        col_labels = ' '.join(str(x % 10) for x in range(minx, maxx + 1))
-        lines: List[str] = ['   ' + col_labels]
-        for yi, row in enumerate(grid, start=miny):
-            lines.append(f"{yi:2d} " + ' '.join(row))
-        lines.append("")
-        lines.append("Legend: R=Robot M=Mine S=Storage B=Base #=Rock")
-        return '\n'.join(lines)
+        markup.append('\nLegend: ')
+        markup.append(('robot', 'R=Robot '))
+        markup.append(('mine', 'M=Mine '))
+        markup.append(('storage', 'S=Storage '))
+        markup.append(('base', 'B=Base '))
+        markup.append(('rock', '#=Rock'))
+        
+        return markup
     
     def build_object_list():
         """Build object list display."""
@@ -95,7 +118,19 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             oid = getattr(o, 'id', None)
             name = getattr(o, 'name', None) or type(o).__name__
             x, y = p
-            lines.append(f"{oid:2} {name:12s} ({x:2},{y:2})")
+            
+            # Show material storage info
+            stored = getattr(o, 'stored', None)
+            capacity = getattr(o, 'capacity', None)
+            inventory = getattr(o, 'inventory', None)
+            
+            info = f"{oid:2} {name:12s} ({x:2},{y:2})"
+            if inventory is not None:  # Robot
+                info += f" inv:{inventory}/{capacity}"
+            elif stored is not None and capacity is not None:  # Mine, Storage, Base
+                info += f" mat:{stored}/{capacity}"
+            
+            lines.append(info)
         return '\n'.join(lines) if lines else 'No objects'
     
     # 2x3 block digit render (width=2, height=3) using simple segments
@@ -169,6 +204,9 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         """Update all display widgets and tick robot movement."""
         # Advance robot movement each refresh (simple steady state)
         game_map.tick_movement()
+        # Handle material production and consumption
+        game_seconds = clock.seconds
+        game_map.tick_production(game_seconds)
         map_text.set_text(build_map_display())
         object_list_text.set_text(build_object_list())
         clock_text.set_text(build_clock_display())
@@ -206,7 +244,11 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                     "• list/objects - show all objects | show/map - display map\n"
                     "• generate terrain - create rocks | demo - add demo objects\n"
                     "• pause/resume time - control clock | reset - clear everything\n"
-                    "• help/? - this help | quit/exit - exit game")
+                    "• version - show version | help/? - this help | quit/exit - exit game")
+        
+        # Version
+        if first in ('version', 'ver', 'v'):
+            return f'KaivosAI version {VERSION}'
         
         # Time/clock commands
         if first in ('pause', 'stop') and len(parts) >= 2 and parts[1] in ('time', 'clock'):
@@ -458,11 +500,28 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         
         # Demo objects
         if first in ('demo', 'example', 'sample'):
+            # Use strong randomization for demo object placement
+            seed_value = int(time.time() * 1000000) + int.from_bytes(os.urandom(4), 'big')
+            random.seed(seed_value)
+            
+            # Find free positions within 30x30 area
+            free_positions = []
+            for x in range(1, 31):
+                for y in range(1, 31):
+                    if game_map.get((x, y)) is None:
+                        free_positions.append((x, y))
+            
+            if len(free_positions) < 4:
+                return 'Not enough free space for demo objects!'
+            
+            random.shuffle(free_positions)
+            positions = free_positions[:4]
+            
             demo_objects = [
-                ('mine', None, 'Iron Mine', (5, 5), {'durability': 25}),
-                ('storage', None, 'Storage A', (6, 5), {'capacity': 50}),
-                ('base', None, 'Base', (7, 5), {}),
-                ('robot', None, 'Bot', (5, 6), {'capacity': 5}),
+                ('mine', None, 'Iron Mine', positions[0], {'durability': 25}),
+                ('storage', None, 'Storage A', positions[1], {'capacity': 50}),
+                ('base', None, 'Base', positions[2], {}),
+                ('robot', None, 'Bot', positions[3], {'capacity': 5}),
             ]
             added = 0
             for typ, oid, name, pos, kwargs in demo_objects:
@@ -473,7 +532,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                     added += 1
                 except Exception:
                     pass
-            return f'Added {added} demo objects'
+            return f'Added {added} demo objects at random positions'
         
         return f"I don't understand '{cmd_line}'. Type 'help' for commands."
     
@@ -484,16 +543,16 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             command_input.set_edit_text('')
             try:
                 msg = process_command(cmd_line)
-                status_text.set_text(msg)
+                status_text.set_text(f'> {cmd_line}\n{msg}')
                 refresh_display()  # Refresh immediately after command
             except urwid.ExitMainLoop:
                 raise
             except Exception as e:
-                status_text.set_text(f'Error: {e}')
+                status_text.set_text(f'> {cmd_line}\nError: {e}')
         elif key in ('esc',):
             raise urwid.ExitMainLoop()
     
-    loop = urwid.MainLoop(main_pile, unhandled_input=handle_input)
+    loop = urwid.MainLoop(main_pile, palette=palette, unhandled_input=handle_input)
     refresh_display(loop)
     loop.run()
 
@@ -502,7 +561,7 @@ def run_demo():
     """Start the demo with Urwid TUI."""
     conn = get_game_conn()
     init_game_db(conn)
-    game_map = Map(width=50, height=50, conn=conn)
+    game_map = Map(width=30, height=30, conn=conn)
     # Start game clock (persistent)
     clock = GameClock(conn)
     clock.start()
@@ -512,19 +571,37 @@ def run_demo():
     if existing[0] == 0:
         print("Empty database detected - generating terrain and adding demo objects...")
         
+        # Use strong randomization: time with microseconds + OS random bytes
+        seed_value = int(time.time() * 1000000) + int.from_bytes(os.urandom(4), 'big')
+        random.seed(seed_value)
+        print(f"Random seed: {seed_value}")
+        
         # Generate terrain first
         border, terrain = game_map.generate_full_terrain(rock_density=0.03, cluster_size=4)
         print(f"Terrain generated: {border} border rocks, {terrain} terrain rocks")
         
-        # Add demo objects in safe interior positions (IDs auto-assigned to avoid conflicts)
-        mine = Mine(name="Iron Mine", pos=(5, 5), durability=25)
-        storage = Storage(name="Storage A", pos=(6, 5), capacity=50)
-        base = Base(name="Base", pos=(7, 5))
-        bot = Robot(name="Bot", pos=(5, 6), capacity=5)
+        # Add demo objects in random positions within 30x30 area (IDs auto-assigned to avoid conflicts)
+        # Find free positions (not occupied by rocks)
+        free_positions = []
+        for x in range(1, 31):
+            for y in range(1, 31):
+                if game_map.get((x, y)) is None:
+                    free_positions.append((x, y))
+        
+        if len(free_positions) >= 4:
+            random.shuffle(free_positions)
+            positions = free_positions[:4]
+            
+            mine = Mine(name="Iron Mine", pos=positions[0], durability=25)
+            storage = Storage(name="Storage A", pos=positions[1], capacity=50)
+            base = Base(name="Base", pos=positions[2])
+            bot = Robot(name="Bot", pos=positions[3], capacity=5)
 
-        for obj in (mine, storage, base, bot):
-            game_map.add_object(obj, obj.pos)
-        print("Demo objects added. Use 'demo' command to recreate or 'reset' to clear.")
+            for obj in (mine, storage, base, bot):
+                game_map.add_object(obj, obj.pos)
+            print("Demo objects added. Use 'demo' command to recreate or 'reset' to clear.")
+        else:
+            print("Not enough free positions for demo objects!")
 
     # Launch Urwid TUI
     try:

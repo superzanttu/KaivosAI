@@ -222,6 +222,28 @@ class Map:
                     obj._move_target = None
                     obj._move_path = None
     
+    def tick_production(self, game_seconds: int):
+        """Handle material production in mines and consumption in bases.
+        
+        Args:
+            game_seconds: Current game time in seconds
+        """
+        from .models import Mine, Base
+        
+        for pos, obj in self.cells.items():
+            if isinstance(obj, Mine):
+                # Mines produce 1 material every 10 seconds if not full
+                produced = obj.produce(game_seconds)
+                if produced > 0 and self.conn:
+                    from .db import persist_object
+                    persist_object(self.conn, obj)
+            elif isinstance(obj, Base):
+                # Bases consume 1 material every 10 seconds if material available
+                consumed = obj.consume(game_seconds)
+                if consumed > 0 and self.conn:
+                    from .db import persist_object
+                    persist_object(self.conn, obj)
+    
     # ==================== Pathfinding ====================
 
     def _find_path(self, start: Position, goal: Position) -> List[Position]:
