@@ -52,6 +52,29 @@ class ModelBehaviorTests(unittest.TestCase):
         self.assertEqual(robot._program_counter, 0)
         self.assertEqual(robot._message_inbox, [])
 
+    def test_robot_instant_transfer_methods(self):
+        # Instant load from mine
+        robot = Robot(capacity=5)
+        mine = Mine(stored=3)
+        loaded = robot.load_from(mine, 2)
+        self.assertEqual(loaded, 2)
+        self.assertEqual(robot.inventory, 2)
+        self.assertEqual(mine.stored, 1)
+
+        # Instant unload to storage
+        storage = Storage(capacity=10, stored=0)
+        moved = robot.unload_to(storage, 1)
+        self.assertEqual(moved, 1)
+        self.assertEqual(robot.inventory, 1)
+        self.assertEqual(storage.stored, 1)
+
+        # Deposit to base via unload_to
+        base = Base(bank=0, stored=0)
+        moved2 = robot.unload_to(base, None)
+        self.assertEqual(moved2, 1)
+        self.assertEqual(base.bank, 1)
+        self.assertEqual(base.stored, 1)
+
 
 class MapBehaviorTests(unittest.TestCase):
     def test_generate_full_terrain_adds_border_and_interiors(self):

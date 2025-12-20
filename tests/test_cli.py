@@ -139,14 +139,14 @@ class CLIControllerTests(unittest.TestCase):
         robot.id = robot.id or 1
         # Invalid program (too long line) should not start
         robot.commands_text = ["X" * 25] + [""] * 9
-        msg = self.controller.process_command(f"robot {robot.id} start")
+        msg = self.controller.process_command(f"robot {robot.id} run")
         self.assertIn("Cannot start program", msg)
         # Valid minimal program starts
         robot.commands_text = ["END"] + [""] * 9
-        msg2 = self.controller.process_command(f"robot {robot.id} start")
+        msg2 = self.controller.process_command(f"robot {robot.id} run")
         self.assertIn("program started", msg2)
         # Stop
-        msg3 = self.controller.process_command(f"robot {robot.id} stop")
+        msg3 = self.controller.process_command(f"robot {robot.id} halt")
         self.assertIn("program stopped", msg3)
 
     def test_system_optimize_ids(self):
