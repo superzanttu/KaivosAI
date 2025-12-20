@@ -25,6 +25,7 @@ import random
 
 from .db import init_game_db, persist_object, delete_object_db, load_objects_from_db, log_event
 from .models import Robot, Mine, Storage, Base, Rock
+from .exceptions import MapError, ValidationError
 
 Position = Tuple[int, int]
 
@@ -191,8 +192,12 @@ class Map:
         # Remove by id
         try:
             oid = int(pos_or_id)
-        except Exception:
-            return None
+        except (ValueError, TypeError):
+            # Invalid ID format
+            raise ValidationError(
+                f"Invalid object ID: {pos_or_id}", 
+                details={"input": pos_or_id}
+            )
 
         # Try to find object in in-memory cells
         found_pos = None
@@ -207,7 +212,7 @@ class Map:
                 delete_object_db(self.conn, found_pos)
             return obj
 
-        # If not in memory, try to remove from DB (and return None)
+        # If not in memory, try to remove from DB
         if self.conn:
             cur = self.conn.execute("SELECT x,y FROM game_objects WHERE id = ?", (oid,))
             row = cur.fetchone()
@@ -217,7 +222,11 @@ class Map:
                 delete_object_db(self.conn, pos)
                 return obj
 
-        return None
+        # Object not found
+        raise MapError(
+            f"Object with ID {oid} not found",
+            details={"id": oid}
+        )
 
     def move_object(self, from_pos: Position, to_pos: Position):
         """Move object from one position to another instantly.

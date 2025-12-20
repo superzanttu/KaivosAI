@@ -22,6 +22,7 @@ Example:
 from typing import Optional, Tuple
 import sqlite3
 from pathlib import Path
+from .exceptions import DatabaseError
 
 Position = Tuple[int, int]
 
@@ -195,7 +196,8 @@ def persist_object(conn: sqlite3.Connection, obj):
             if row:
                 try:
                     setattr(obj, 'id', row['id'])
-                except Exception:
+                except (AttributeError, TypeError):
+                    # Object doesn't support attribute assignment (frozen dataclass, etc.)
                     pass
     except sqlite3.OperationalError as e:
         # Fallback for older DBs that don't have UNIQUE(x,y): perform delete+insert
@@ -217,10 +219,15 @@ def persist_object(conn: sqlite3.Connection, obj):
             new_id = cur.lastrowid if obj_id is None else obj_id
             try:
                 setattr(obj, 'id', new_id)
-            except Exception:
+            except (AttributeError, TypeError):
+                # Object doesn't support attribute assignment
                 pass
         else:
-            raise
+            # Unexpected OperationalError, wrap and re-raise
+            raise DatabaseError(
+                f"Database operation failed: {e}",
+                details={"error": str(e), "object": vals}
+            ) from e
 
 
 def delete_object_db(conn: sqlite3.Connection, pos: Position):

@@ -467,6 +467,80 @@ class TestRoboBRAINExecutor(unittest.TestCase):
         self.assertEqual(len(robot2._message_inbox), 1)
         self.assertEqual(robot2._message_inbox[0], ('ROBOT', 'HELLO', 100))
         self.assertEqual(self.robot._program_counter, 1)
+
+    def test_execute_goto_object_defaults_stop_distance(self):
+        game_map = Map(width=4, height=4)
+        robot = Robot(id=1, pos=(0, 0))
+        base = Base(id=2, pos=(2, 0))
+        game_map.add_object(robot, robot.pos)
+        game_map.add_object(base, base.pos)
+
+        robot._program_running = True
+        robot._program_counter = 0
+        robot._program_labels = {}
+        robot._parsed_program = [
+            {'command': 'GOTO', 'args': [('object', 2, 0)]},
+        ]
+
+        result = self.executor.execute_next_line(robot, game_map, 0)
+
+        self.assertIsNone(result)
+        self.assertEqual(robot._move_target, (2, 0))
+        self.assertEqual(robot._move_path, [(1, 0)])
+
+    def test_execute_direction_reports_error(self):
+        game_map = Map(width=2, height=2)
+        robot = Robot(id=1, pos=(0, 0))
+        game_map.add_object(robot, robot.pos)
+
+        robot._parsed_program = [
+            {'command': 'RIGHT', 'args': [5]},
+        ]
+        robot._program_running = True
+        robot._program_counter = 0
+
+        result = self.executor.execute_next_line(robot, game_map, 0)
+
+        self.assertIn('RIGHT error', result)
+        self.assertEqual(robot._program_counter, 1)
+
+    def test_execute_if_scan_true(self):
+        game_map = Map(width=4, height=4)
+        robot = Robot(id=1, pos=(1, 1))
+        base = Base(id=2, pos=(1, 3), stored=1)
+        game_map.add_object(robot, robot.pos)
+        game_map.add_object(base, base.pos)
+
+        robot._program_running = True
+        robot._program_counter = 0
+        robot._program_labels = {'YES': 2}
+        robot._parsed_program = [
+            {'command': 'IF', 'args': [False, 'SCAN', 'D', 2, 'BASE', ':YES']},
+            {'command': 'END', 'args': []},
+        ]
+
+        result = self.executor.execute_next_line(robot, game_map, 0)
+
+        self.assertIsNone(result)
+        self.assertEqual(robot._program_counter, 1)
+
+    def test_execute_if_range_negated(self):
+        game_map = Map(width=4, height=4)
+        robot = Robot(id=1, pos=(0, 0))
+        game_map.add_object(robot, robot.pos)
+
+        robot._program_running = True
+        robot._program_counter = 0
+        robot._program_labels = {'MISS': 2}
+        robot._parsed_program = [
+            {'command': 'IF', 'args': [True, 'RANGE', 1, 'ANY', ':MISS']},
+            {'command': 'END', 'args': []},
+        ]
+
+        result = self.executor.execute_next_line(robot, game_map, 0)
+
+        self.assertIsNone(result)
+        self.assertEqual(robot._program_counter, 1)
     
     def test_program_end_reached(self):
         """Test program stops when reaching end."""
