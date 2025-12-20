@@ -1,10 +1,7 @@
 """Real-time TUI viewer for KaivosAI using Urwid.
 
 Polls the `game.db` and renders an ASCII viewport centered on objects.
-Falls back to simple console rendering if Urwid is not available.
 """
-import os
-import time
 from typing import List
 
 from .db import get_game_conn
@@ -52,47 +49,10 @@ def build_grid_text(rows, minx, maxx, miny, maxy, header: str = "") -> str:
     return '\n'.join(lines)
 
 
-def _console_viewer(conn, poll_seconds: float):
-    """Fallback simple console viewer (no Urwid)."""
-    try:
-        clock = GameClock(conn)
-    except Exception:
-        clock = None
-    try:
-        while True:
-            rows = list(conn.execute('SELECT id,name,x,y,type FROM game_objects'))
-            minx, maxx, miny, maxy = auto_bounds(rows)
-            if clock:
-                try:
-                    sec = clock.seconds
-                    hh = (sec % 86400) // 3600
-                    mm = (sec % 3600) // 60
-                    ss = sec % 60
-                    colon = ':' if (ss % 2) == 0 else ' '
-                    clock_str = f"{hh:02d}{colon}{mm:02d}{colon}{ss:02d}"
-                except Exception:
-                    clock_str = "--:--:--"
-            else:
-                clock_str = "--:--:--"
-            header = f"KaivosAI Viewer — {len(rows)} objects — {clock_str} — refresh {poll_seconds}s"
-            os.system('cls' if os.name == 'nt' else 'clear')
-            print(build_grid_text(rows, minx, maxx, miny, maxy, header))
-            time.sleep(poll_seconds)
-    except KeyboardInterrupt:
-        print('\nViewer stopped')
-
-
 def run_viewer(poll_seconds: float = 0.5):
+    import urwid  # type: ignore
+    
     conn = get_game_conn()
-    # Try to use Urwid; if unavailable, fall back to console
-    try:
-        import urwid  # type: ignore
-    except Exception:
-        try:
-            _console_viewer(conn, poll_seconds)
-        finally:
-            conn.close()
-        return
 
     try:
         clock = GameClock(conn)
