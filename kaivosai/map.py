@@ -46,6 +46,17 @@ class Map:
 
     def get(self, pos: Position):
         return self.cells.get(pos)
+    
+    def get_adjacent_objects(self, pos: Position):
+        """Get objects adjacent to position (up, down, left, right)."""
+        x, y = pos
+        adjacent = []
+        for dx, dy in [(0, 1), (0, -1), (-1, 0), (1, 0)]:
+            adj_pos = (x + dx, y + dy)
+            obj = self.get(adj_pos)
+            if obj:
+                adjacent.append(obj)
+        return adjacent
 
     def add_object(self, obj, pos: Position):
         if not self.in_bounds(pos):

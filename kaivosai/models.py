@@ -108,9 +108,58 @@ class Robot:
     pos: Position = (0, 0)
     capacity: int = 5
     inventory: int = 0
+    name: str = "Robot"
 
     def move_to(self, target: Position):
         self.pos = target
+
+    def load_from(self, source, amount: int = None) -> int:
+        """Load material from source object (Mine, Storage, Base, or Robot)."""
+        free = self.capacity - self.inventory
+        if free <= 0:
+            return 0
+        
+        load_amount = amount if amount is not None else free
+        load_amount = min(load_amount, free)
+        
+        # Withdraw from source
+        if hasattr(source, 'withdraw'):
+            taken = source.withdraw(load_amount)
+        elif isinstance(source, Robot):
+            # Take from another robot's inventory
+            taken = min(load_amount, source.inventory)
+            source.inventory -= taken
+        else:
+            return 0
+        
+        self.inventory += taken
+        return taken
+    
+    def unload_to(self, target, amount: int = None) -> int:
+        """Unload material to target object (Storage, Base, or Robot)."""
+        if self.inventory <= 0:
+            return 0
+        
+        unload_amount = amount if amount is not None else self.inventory
+        unload_amount = min(unload_amount, self.inventory)
+        
+        # Deposit to target
+        if hasattr(target, 'store'):
+            # Storage
+            stored = target.store(unload_amount)
+        elif hasattr(target, 'deposit'):
+            # Base
+            stored = target.deposit(unload_amount)
+        elif isinstance(target, Robot):
+            # Transfer to another robot
+            free = target.capacity - target.inventory
+            stored = min(unload_amount, free)
+            target.inventory += stored
+        else:
+            return 0
+        
+        self.inventory -= stored
+        return stored
 
     def mine(self, mine: Mine, amount: int = None) -> int:
         if self.pos != mine.pos:
