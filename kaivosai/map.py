@@ -4,7 +4,7 @@ import threading
 import time
 import random
 
-from .db import init_game_db, persist_object, delete_object_db, load_objects_from_db
+from .db import init_game_db, persist_object, delete_object_db, load_objects_from_db, log_event
 from .models import Robot, Mine, Storage, Base, Rock
 
 Position = Tuple[int, int]
@@ -186,6 +186,18 @@ class Map:
         Call this once per game second (or as needed). Each robot takes one step
         toward its goal. If a path is blocked, it's recomputed.
         """
+        from .clock import GameClock
+        # Get game time for event logging
+        game_seconds = 0
+        if self.conn:
+            try:
+                cursor = self.conn.execute("SELECT value FROM game_meta WHERE key = 'game_seconds'")
+                row = cursor.fetchone()
+                if row:
+                    game_seconds = float(row[0])
+            except Exception:
+                pass
+        
         # Find all robots with active movement targets
         for pos, obj in list(self.cells.items()):
             if not isinstance(obj, Robot):
@@ -219,6 +231,11 @@ class Map:
                     if next_pos == target:
                         obj._move_target = None
                         obj._move_path = None
+                        # Log arrival event
+                        if self.conn:
+                            name = getattr(obj, 'name', f'Robot {obj.id}')
+                            log_event(self.conn, game_seconds, 'robot_arrived', 
+                                     f'{name} arrived at ({next_pos[0]},{next_pos[1]})', obj, next_pos)
                 except Exception:
                     # Move failed; clear the movement
                     obj._move_target = None
@@ -232,6 +249,11 @@ class Map:
                     # No path available; give up
                     obj._move_target = None
                     obj._move_path = None
+                    # Log blocked event
+                    if self.conn:
+                        name = getattr(obj, 'name', f'Robot {obj.id}')
+                        log_event(self.conn, game_seconds, 'robot_blocked', 
+                                 f'{name} blocked at ({pos[0]},{pos[1]}), cannot reach target', obj, pos)
     
     def tick_production(self, game_seconds: int):
         """Handle material production in mines and consumption in bases.
@@ -239,19 +261,67 @@ class Map:
         Args:
             game_seconds: Current game time in seconds
         """
-        from .models import Mine, Base
+        from .models import Mine, Base, Storage
         
         for pos, obj in self.cells.items():
             if isinstance(obj, Mine):
+                # Check if mine was full before production
+                was_full = obj.stored >= obj.capacity
                 # Mines produce 1 material every 10 seconds if not full
                 produced = obj.produce(game_seconds)
                 if produced > 0 and self.conn:
                     from .db import persist_object
                     persist_object(self.conn, obj)
+                # Check if mine became full
+                if obj.stored >= obj.capacity and not was_full and self.conn:
+                    name = getattr(obj, 'name', f'Mine {obj.id}')
+                    log_event(self.conn, game_seconds, 'mine_full', 
+                             f'{name} at ({pos[0]},{pos[1]}) is full ({obj.stored}/{obj.capacity})', obj, pos)
+                # Check if mine is now empty (all materials withdrawn)
+                if obj.stored == 0 and self.conn:
+                    name = getattr(obj, 'name', f'Mine {obj.id}')
+                    log_event(self.conn, game_seconds, 'mine_empty', 
+                             f'{name} at ({pos[0]},{pos[1]}) is empty', obj, pos)
             elif isinstance(obj, Base):
+                # Check if base was empty before consumption
+                was_empty = obj.stored == 0
                 # Bases consume 1 material every 10 seconds if material available
                 consumed = obj.consume(game_seconds)
                 if consumed > 0 and self.conn:
+                    from .db import persist_object
+                    persist_object(self.conn, obj)
+                # Check if base became empty
+                if obj.stored == 0 and not was_empty and self.conn:
+                    name = getattr(obj, 'name', f'Base {obj.id}')
+                    log_event(self.conn, game_seconds, 'base_empty', 
+                             f'{name} at ({pos[0]},{pos[1]}) is empty', obj, pos)
+                # Check if base became full
+                if obj.stored > 0 and was_empty and self.conn:
+                    name = getattr(obj, 'name', f'Base {obj.id}')
+                    log_event(self.conn, game_seconds, 'base_supplied', 
+                             f'{name} at ({pos[0]},{pos[1]}) has materials ({obj.stored})', obj, pos)
+            elif isinstance(obj, Storage):
+                # Check storage status for full/empty conditions
+                if obj.stored >= obj.capacity and self.conn:
+                    name = getattr(obj, 'name', f'Storage {obj.id}')
+                    # Log only once when it becomes full (avoid spam)
+                    if not hasattr(obj, '_logged_full') or not obj._logged_full:
+                        log_event(self.conn, game_seconds, 'storage_full', 
+                                 f'{name} at ({pos[0]},{pos[1]}) is full ({obj.stored}/{obj.capacity})', obj, pos)
+                        obj._logged_full = True
+                else:
+                    if hasattr(obj, '_logged_full'):
+                        obj._logged_full = False
+                if obj.stored == 0 and self.conn:
+                    name = getattr(obj, 'name', f'Storage {obj.id}')
+                    # Log only once when it becomes empty (avoid spam)
+                    if not hasattr(obj, '_logged_empty') or not obj._logged_empty:
+                        log_event(self.conn, game_seconds, 'storage_empty', 
+                                 f'{name} at ({pos[0]},{pos[1]}) is empty', obj, pos)
+                        obj._logged_empty = True
+                else:
+                    if hasattr(obj, '_logged_empty'):
+                        obj._logged_empty = False
                     from .db import persist_object
                     persist_object(self.conn, obj)
     

@@ -5,7 +5,7 @@ import random
 import time
 import os
 
-from .db import get_game_conn, init_game_db
+from .db import get_game_conn, init_game_db, log_event
 from .map import Map
 from .models import Robot, Mine, Storage, Base, Rock, create_object
 from .clock import GameClock
@@ -142,15 +142,17 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
     # Widgets
     map_text = urwid.Text('', align='left')
     object_list_text = urwid.Text('', align='left')
+    events_text = urwid.Text('', align='left')
     clock_text = urwid.Text('', align='left')
     status_text = urwid.Text('', align='left')
     command_input = CommandEdit('> ')
     
-    # Layout: map on left, object list + clock on right, status + input at bottom
+    # Layout: map on left, object list + clock + events on right, status + input at bottom
     map_box = urwid.LineBox(urwid.Filler(map_text, valign='top'), title='Map')
     info_pile = urwid.Pile([
         urwid.LineBox(clock_text, title=f'Clock - KaivosAI v{VERSION}'),
         urwid.LineBox(urwid.Filler(object_list_text, valign='top'), title='Objects'),
+        urwid.LineBox(urwid.Filler(events_text, valign='top'), title='Events (recent)'),
     ])
     top_columns = urwid.Columns([
         ('weight', 2, map_box),
@@ -242,6 +244,39 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             
             lines.append(info)
         return '\n'.join(lines) if lines else 'No objects'
+    
+    def build_events_display():
+        """Build recent events list."""
+        if not conn:
+            return 'No database connection'
+        
+        from .db import get_recent_events
+        from .clock import GameClock
+        
+        try:
+            events = get_recent_events(conn, limit=15)
+            if not events:
+                return 'No events yet'
+            
+            lines: List[str] = []
+            for event in events:
+                timestamp, obj_id, obj_type, event_type, message, x, y = event
+                # Format timestamp as W1 D1 HH:MM:SS
+                weeks, remainder = divmod(int(timestamp), 7 * 24 * 3600)
+                days, remainder = divmod(remainder, 24 * 3600)
+                hours, remainder = divmod(remainder, 3600)
+                minutes, seconds = divmod(remainder, 60)
+                time_str = f"W{weeks+1} D{days+1} {hours:02d}:{minutes:02d}:{seconds:02d}"
+                
+                # Truncate message if too long
+                if len(message) > 40:
+                    message = message[:37] + '...'
+                
+                lines.append(f"{time_str} {message}")
+            
+            return '\n'.join(lines)
+        except Exception as e:
+            return f'Error loading events: {e}'
     
     # 2x3 block digit render (width=2, height=3) using simple segments
     _digit_segments = {
@@ -382,6 +417,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         game_map.tick_production(game_seconds)
         map_text.set_text(build_map_display())
         object_list_text.set_text(build_object_list())
+        events_text.set_text(build_events_display())
         clock_text.set_text(build_clock_display())
         if loop:
             loop.set_alarm_in(0.5, refresh_display)
@@ -715,6 +751,15 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                         from .db import persist_object
                         persist_object(conn, robot)
                         persist_object(conn, source)
+                        # Log event
+                        game_seconds = clock.seconds if clock else 0
+                        source_name = getattr(source, 'name', type(source).__name__)
+                        log_event(conn, game_seconds, 'robot_loaded', 
+                                 f'Robot {rid} loaded {loaded} from {source_name} at ({robot.pos[0]},{robot.pos[1]})', robot, robot.pos)
+                        # Check if robot is full
+                        if robot.inventory >= robot.capacity:
+                            log_event(conn, game_seconds, 'robot_full', 
+                                     f'Robot {rid} inventory full ({robot.inventory}/{robot.capacity})', robot, robot.pos)
                     source_name = getattr(source, 'name', type(source).__name__)
                     return f'Robot {rid} loaded {loaded} material from {source_name}. Inventory: {robot.inventory}/{robot.capacity}'
                 else:
@@ -745,6 +790,15 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                         from .db import persist_object
                         persist_object(conn, robot)
                         persist_object(conn, target)
+                        # Log event
+                        game_seconds = clock.seconds if clock else 0
+                        target_name = getattr(target, 'name', type(target).__name__)
+                        log_event(conn, game_seconds, 'robot_unloaded', 
+                                 f'Robot {rid} unloaded {unloaded} to {target_name} at ({robot.pos[0]},{robot.pos[1]})', robot, robot.pos)
+                        # Check if robot is empty
+                        if robot.inventory == 0:
+                            log_event(conn, game_seconds, 'robot_empty', 
+                                     f'Robot {rid} inventory empty', robot, robot.pos)
                     target_name = getattr(target, 'name', type(target).__name__)
                     return f'Robot {rid} unloaded {unloaded} material to {target_name}. Inventory: {robot.inventory}/{robot.capacity}'
                 else:
@@ -772,6 +826,12 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             try:
                 started = game_map.command_move_robot(rid, (x, y))
                 if started:
+                    # Log movement start event
+                    if conn:
+                        game_seconds = clock.seconds if clock else 0
+                        name = getattr(robot, 'name', f'Robot {rid}')
+                        log_event(conn, game_seconds, 'robot_moving', 
+                                 f'{name} started moving to ({x},{y}) from ({robot.pos[0]},{robot.pos[1]})', robot, robot.pos)
                     return f'Robot {rid} moving to ({x},{y})'
                 else:
                     return 'No path available or already at target'

@@ -49,6 +49,28 @@ def init_game_db(conn: sqlite3.Connection):
         )
         """
     )
+    # events table for game events with timestamps
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS game_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp REAL NOT NULL,
+            object_id INTEGER,
+            object_type TEXT,
+            event_type TEXT NOT NULL,
+            message TEXT NOT NULL,
+            x INTEGER,
+            y INTEGER
+        )
+        """
+    )
+    # Index for faster queries by timestamp
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_events_timestamp 
+        ON game_events(timestamp DESC)
+        """
+    )
     conn.commit()
 
 
@@ -156,3 +178,51 @@ def delete_object_by_id(conn: sqlite3.Connection, oid: int):
 def load_objects_from_db(conn: sqlite3.Connection):
     cur = conn.execute("SELECT * FROM game_objects")
     return cur.fetchall()
+
+
+def log_event(conn: sqlite3.Connection, timestamp: float, event_type: str, message: str, 
+              obj=None, pos: Optional[Position] = None):
+    """Log a game event to the database.
+    
+    Args:
+        conn: Database connection
+        timestamp: Game time in seconds
+        event_type: Type of event (e.g., 'robot_move', 'storage_full', 'mine_empty')
+        message: Human-readable event description
+        obj: Optional game object related to the event
+        pos: Optional position tuple (x, y)
+    """
+    obj_id = getattr(obj, 'id', None) if obj else None
+    obj_type = type(obj).__name__.lower() if obj else None
+    x, y = pos if pos else (None, None)
+    
+    conn.execute(
+        """
+        INSERT INTO game_events (timestamp, object_id, object_type, event_type, message, x, y)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (timestamp, obj_id, obj_type, event_type, message, x, y)
+    )
+    conn.commit()
+
+
+def get_recent_events(conn: sqlite3.Connection, limit: int = 20):
+    """Get recent game events.
+    
+    Args:
+        conn: Database connection
+        limit: Maximum number of events to return
+        
+    Returns:
+        List of event rows
+    """
+    cursor = conn.execute(
+        """
+        SELECT timestamp, object_id, object_type, event_type, message, x, y
+        FROM game_events
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (limit,)
+    )
+    return cursor.fetchall()
