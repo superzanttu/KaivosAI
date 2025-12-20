@@ -10,6 +10,8 @@ from typing import Tuple
 
 
 def backup_db(path: Path) -> Path:
+    # Ensure parent directory exists for backup
+    path.parent.mkdir(parents=True, exist_ok=True)
     bak = path.with_suffix(path.suffix + '.bak')
     shutil.copy2(path, bak)
     return bak

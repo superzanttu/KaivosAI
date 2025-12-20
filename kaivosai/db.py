@@ -8,11 +8,13 @@ from pathlib import Path
 
 Position = Tuple[int, int]
 
-GAME_DB = Path(__file__).parent.parent / "game.db"
+GAME_DB = Path(__file__).parent.parent / "databases" / "game.db"
 
 
 def get_game_conn(path: Optional[Path] = None):
     p = path or GAME_DB
+    # Ensure databases directory exists
+    p.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(p), timeout=10.0)
     conn.row_factory = sqlite3.Row
     # Enable WAL mode for better concurrency

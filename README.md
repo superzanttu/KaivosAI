@@ -101,11 +101,11 @@ The game clock runs in the background and persists across sessions:
 
 ## Persistence
 
-Game state is persisted in `game.db` (SQLite). Objects added/removed/moved are saved automatically. The game clock state is also saved and restored between sessions.
+Game state is persisted in `databases/game.db` (SQLite). The `databases/` directory is created automatically on first run. Objects added/removed/moved are saved automatically. The game clock state is also saved and restored between sessions.
 
 ## Migrations
 
-Deduplicate and migrate `game.db` (creates backup `game.db.bak`):
+Deduplicate and migrate `databases/game.db` (creates backup `databases/game.db.bak`):
 
 ```powershell
 python -m kaivosai.migrations
@@ -115,7 +115,7 @@ python -m kaivosai.migrations
 
 ### Task manager
 
-A small CLI task manager (`taskmanager.py`) tracks TODOs while developing. Tasks persist in `tasks.db`. Intended as developer convenience — not part of gameplay.
+A small CLI task manager (`taskmanager.py`) tracks TODOs while developing. Tasks persist in `databases/tasks.db`. Intended as developer convenience — not part of gameplay.
 
 ### Committing & pushing
 
@@ -129,4 +129,4 @@ Install Urwid for TUI support:
 python -m pip install urwid
 ```
 
-If Urwid is not available, the game falls back to a basic REPL mode with the same natural language commands.
+Urwid is required to run the game.

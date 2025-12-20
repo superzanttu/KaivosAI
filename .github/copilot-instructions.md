@@ -1,96 +1,134 @@
 ## KaivosAI — Copilot / Agent Instructions
 
-Short, actionable guidance for AI coding agents working on this repository.
+Focused guidance for AI coding agents working on this mining game TUI project.
 
-Overview
-- `kaivosai/` is the game package; `kaivosai.py` is the small top-level runner that calls `run_demo()`.
-- Core modules:
-  - `kaivosai/db.py` — DB schema, `init_game_db()`, `persist_object()`, `load_objects_from_db()`, and `game_meta` table.
-  - `kaivosai/map.py` — `Map` class: in-memory (x,y)->object; calls DB helpers when `conn` is provided.
-  - `kaivosai/models.py` — dataclasses and `create_object()` factory.
-  - `kaivosai/cli.py` — REPL, `run_demo()`, and `time` commands; starts/stops `GameClock`.
-  - `kaivosai/clock.py` — background `GameClock`, persists `game_seconds` in `game_meta`; uses thread-safe DB connection.
-  - `kaivosai/migrations.py` — safe dedupe migration (backs up DB, creates UNIQUE(x,y), swaps tables).
+## 1. Architecture Overview
 
-Key patterns & constraints
-- Coordinates `(x,y)` are the canonical uniqueness key. `persist_object()` prefers `ON CONFLICT(x,y)` UPSERT but falls back to delete+insert for older DBs — preserve that fallback unless a migration is added and verified.
-- `GameClock` runs in a background thread and opens its own SQLite connection with `check_same_thread=False` (don’t reuse main-thread connection from the thread).
-- `Map.remove_object()` accepts either a position tuple `(x,y)` or an integer `id`. CLI `remove` supports both.
-- Viewer reads from `game.db` only and should not perform writes.
+**KaivosAI** is a terminal-based mining simulation with persistent state, real-time clock, and material production/consumption.
 
-Developer workflows (quick)
-- Run demo: `python kaivosai.py` or `python -m kaivosai.cli`.
-- Run viewer: `python -m kaivosai.viewer`.
-- Run migration: `python -m kaivosai.migrations` (creates `game.db.bak`).
-- Run tests: `python -m unittest` or `python -m unittest tests.test_persistence`.
-- Commit helper: `commit_and_push.ps1` reads `commit_message.txt` (if present) then deletes it after a successful commit.
+Core components:
+- [kaivosai/db.py](kaivosai/db.py) — SQLite persistence: `init_game_db()`, `persist_object()`, `load_objects_from_db()`, `game_meta` table; databases stored in `databases/` directory
+- [kaivosai/models.py](kaivosai/models.py) — Game objects as dataclasses: `Robot`, `Mine`, `Storage`, `Base`, `Rock`, `create_object()` factory
+- [kaivosai/map.py](kaivosai/map.py) — In-memory `Map` class: dict of `(x,y)->object`, syncs to DB, pathfinding, production/consumption ticks
+- [kaivosai/cli.py](kaivosai/cli.py) — Urwid TUI: natural language command processor, colored map display, object list, clock display
+- [kaivosai/clock.py](kaivosai/clock.py) — Background `GameClock` thread, persists `game_seconds` in `game_meta` table
+- [kaivosai/viewer.py](kaivosai/viewer.py) — Read-only Urwid viewer polling `databases/game.db`
+- [kaivosai/migrations.py](kaivosai/migrations.py) — Safe schema migrations with backups
 
-Where to look when changing things
-- DB/persistence changes: `kaivosai/db.py` and `kaivosai/migrations.py` (update tests in `tests/test_persistence.py`).
-- Map/behaviour/CLI: `kaivosai/map.py`, `kaivosai/models.py`, `kaivosai/cli.py`.
-- Clock/timing: `kaivosai/clock.py` and `cli.run_demo()` (clock lifecycle handling).
+Entry point: `kaivosai.py` calls `run_demo()` → starts Urwid TUI with 30x30 map
 
-Examples & snippets
-- Load persisted rows: see `kaivosai/map.py` loader loop using `create_object(type, id=..., pos=(x,y), ...)`.
-- Persist: `persist_object(conn, obj)` — may assign `obj.id`.
-- Safe migrate pattern: backup file, create `_new` table with UNIQUE(x,y), insert one row per (x,y) (keep max id), drop old, rename new (see `kaivosai/migrations.py`).
+Database files stored in `databases/` directory (auto-created):
+- `databases/game.db` — main game state (objects, clock)
+- `databases/game.db.bak` — backup created by migrations
+- `databases/game.db-shm`, `databases/game.db-wal` — SQLite WAL files
 
-Testing & safety
-- Always run `tests/test_persistence.py` after DB or CLI changes. Tests cover persisting, moves, delete-by-id, and migration deduplication.
-- Do not remove delete+insert fallback in `persist_object` without adding/validating the migration and updating tests.
+## 2. Material System (v0.2.0+)
 
-If you want detailed examples (sample `game_meta` rows, CI/action workflow, or test templates for clock behavior), tell me which area to expand.
-## KaivosAI — Copilot / Agent Instructions
+**Key mechanics:**
+- Mines: produce 1 material/10s (max capacity 10, stops when full)
+- Storage: holds up to 20 materials
+- Robots: carry up to 5 materials
+- Bases: consume 1 material/10s if available
 
-This file gives focused, repository-specific guidance for AI coding agents so they can be productive quickly.
+**Implementation:**
+- Production/consumption: `Map.tick_production(game_seconds)` called every 0.5s from `refresh_display()`
+- Objects track `stored`, `capacity`, `last_production_time`, `last_consumption_time`
+- Backward compatibility: missing fields auto-initialized in `produce()`/`consume()` methods
 
-1. Big picture
-- Project: a minimal mining game implemented as a Python package `kaivosai` with a small top-level runner `kaivosai.py`.
-- Major components:
-  - [kaivosai/db.py](kaivosai/db.py): SQLite helpers, `init_game_db`, `persist_object`, `load_objects_from_db`, `game_meta` table.
-  - [kaivosai/models.py](kaivosai/models.py): dataclass definitions for `Robot`, `Mine`, `Storage`, `Base`, `Rock` and `create_object()`.
-  - [kaivosai/map.py](kaivosai/map.py): in-memory `Map` class (dict of `(x,y)->object`) that syncs with the DB when `conn` is provided.
-  - [kaivosai/cli.py](kaivosai/cli.py): interactive REPL and `run_demo()`; responsible for starting the game clock.
-  - [kaivosai/clock.py](kaivosai/clock.py): persistent background `GameClock` storing `game_seconds` in `game_meta`.
-  - [kaivosai/migrations.py](kaivosai/migrations.py): safe deduplication migration that backs up `game.db` and creates UNIQUE(x,y).
+## 3. Critical Patterns
 
-2. Data flows & boundaries
-- Map objects are authoritative in-memory during a session; persistence occurs via `persist_object` calls in `Map.add_object`/`move_object` and `delete_object_db` on removal.
-- The DB schema now includes `game_meta` for small persistent settings (clock, epoch).
-- The viewer (`kaivosai.viewer`) reads directly from the DB and should not try to mutate state.
+**Coordinate uniqueness:**
+- `(x,y)` is the canonical key; DB has `UNIQUE(x,y)` constraint
+- `persist_object()` uses `ON CONFLICT(x,y) DO UPDATE` UPSERT
+- Fallback for old DBs: catches `OperationalError` and does delete+insert — **preserve this**
 
-3. Developer workflows & commands
-- Run demo (interactive REPL): `python kaivosai.py` (or `python -m kaivosai.cli` to run CLI module).
-- Run unit tests: `python -m unittest` (tests are under `tests/`).
-- Run migration (creates `game.db.bak`): `python -m kaivosai.migrations`
-- Commit helper (PowerShell): run `.
-elease_and_push.ps1` (or use `commit_and_push.ps1`). If PowerShell blocks, run Git commands directly.
+**Threading:**
+- `GameClock` runs in background thread with its own `check_same_thread=False` connection
+- Never share main thread's DB connection with clock thread
 
-4. Project-specific conventions and gotchas
-- DB uniqueness: the intended canonical rule is UNIQUE(x,y). Migration enforces this, but code supports fallback (delete+insert) for older DBs.
-- `persist_object` uses UPSERT by coordinates when the DB supports UNIQUE(x,y). For older DBs the code catches OperationalError and falls back — when editing persistence, preserve this dual-mode behavior.
-- The `GameClock` runs in a background thread and opens its own SQLite connection with `check_same_thread=False`. Be careful when modifying clock persistence or threading code.
-- `Map.remove_object` accepts either `(x,y)` or an integer `id`. CLI `remove` was updated accordingly.
+**Map operations:**
+- `Map.get(pos)` returns object at position (not `get_object()`)
+- `Map.remove_object()` accepts `(x,y)` tuple OR integer `id`
+- Viewer is read-only — never writes to DB
 
-5. Tests and guarantees
-- Existing unit tests in `tests/test_persistence.py` cover persistence, moving, removal-by-id, and migration deduplication. Run them after changes.
+## 4. Developer Workflows
 
-6. Integration points
-- Expose public APIs in [kaivosai/__init__.py](kaivosai/__init__.py): `Map`, `run_demo`, `run_viewer`, `migrate_deduplicate`, `get_game_conn`, `init_game_db`.
-- Viewer reads the DB directly — if adding write logic, prefer using `Map` methods.
+```powershell
+# Run game (requires urwid)
+python kaivosai.py
 
-7. Common PR tasks for agents
-- When changing DB schema:
-  - Add a safe migration under [kaivosai/migrations.py](kaivosai/migrations.py).
-  - Ensure `init_game_db` keeps backward compatibility and that `persist_object` falls back gracefully.
-- When changing REPL/CLI commands: update `show_help()` in [kaivosai/cli.py](kaivosai/cli.py) and add tests if logic is non-trivial.
+# Run viewer (separate window)
+python -m kaivosai.viewer
 
-8. Quick code pointers (examples)
-- To load persisted objects: `rows = load_objects_from_db(conn)` then `create_object(row['type'], id=row['id'], name=row['name'], pos=(row['x'],row['y']), capacity=row['capacity'], durability=row['durability'])` (see [kaivosai/map.py](kaivosai/map.py)).
-- To persist an object use: `persist_object(conn, obj)`; it assigns `obj.id` when needed.
+# Run tests
+python -m unittest
+python -m unittest tests.test_persistence
 
-9. Safety & testing priorities
-- Preserve existing behavior: do not remove fallback delete+insert in `persist_object` unless migration is applied and verified.
-- Add tests for DB migrations and clock behavior when modifying those modules.
+# Run migration (creates databases/game.db.bak)
+python -m kaivosai.migrations
 
-If anything here is unclear or you'd like more examples (e.g. expected DB contents after operations, or a recommended test matrix), tell me which area to expand.
+# Commit workflow (reads commit_message.txt, then deletes it)
+.\commit_and_push.ps1
+
+# Reset game (remove databases directory)
+Remove-Item -Recurse databases/
+```
+
+## 5. Urwid TUI Details
+
+**Color palette** (in `run_urwid_tui()`):
+- Robot: light cyan, Mine: yellow, Storage: light green, Base: light magenta, Rock: dark gray
+
+**Map rendering:**
+- `build_map_display()` returns Urwid markup list (not string) for colored output
+- Display limit: 120x60 (to fit 30x30 map with margins)
+- Auto-centers on objects; falls back to (0,9)x(0,9) if map empty
+
+**Command processing:**
+- Natural language parser in `process_command()` using `shlex.split()`
+- Status shows: `> command\nresult` (command echo + output)
+- Commands: create, remove, move, robot go, list, show, generate terrain, demo, pause/resume, reset, version, help, quit
+
+## 6. Adding New Features
+
+**New game object type:**
+1. Add dataclass in [kaivosai/models.py](kaivosai/models.py)
+2. Update `create_object()` factory
+3. Add DB field if needed in [kaivosai/db.py](kaivosai/db.py) `init_game_db()`
+4. Add color to palette in [kaivosai/cli.py](kaivosai/cli.py) `run_urwid_tui()`
+5. Add rendering case in `build_map_display()`
+
+**New command:**
+1. Add parser case in `process_command()` in [kaivosai/cli.py](kaivosai/cli.py)
+2. Update help text in `help` command branch
+3. Return status string (will show as `> command\nresult`)
+
+**DB schema change:**
+1. Add migration function in [kaivosai/migrations.py](kaivosai/migrations.py)
+2. Update `init_game_db()` in [kaivosai/db.py](kaivosai/db.py)
+3. Update `persist_object()` if adding fields
+4. Test with old DB file to verify backward compatibility
+
+## 7. Version & Instructions
+
+- Version tracked in `kaivosai.VERSION` (currently "0.2.0")
+- Always update `VERSION` in [kaivosai/\_\_init\_\_.py](kaivosai/__init__.py) for significant changes
+- Update `commit_message.txt` immediately after code changes (auto-commit helper reads this)
+
+## 8. Testing & Safety
+
+- Run `tests/test_persistence.py` after any DB or Map changes
+- Tests cover: persist, move, delete-by-id, migration deduplication
+- **Never remove** delete+insert fallback in `persist_object()` without migration + test verification
+- Reset game for clean testing: `reset` command OR `Remove-Item -Recurse databases/`
+- Database files in `databases/` directory are gitignored
+
+## 9. Common Gotchas
+
+- Demo objects spawn randomly in 30x30 area (uses `time.time() * 1e6 + os.urandom(4)` seed)
+- Terrain generation uses `random` module — seed before calling `generate_full_terrain()`
+- Map size is 30x30 (was 50x50 in early versions)
+- Object list shows: `ID NAME (X,Y) inv:X/Y` (robots) or `mat:X/Y` (mines/storage/bases)
+- Clock display: `W1 D1  HH:MM:SS` format
+
+Need examples for: pathfinding patterns, robot movement commands, or specific test scenarios? Ask for details.

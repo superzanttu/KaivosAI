@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 
 
-DB_FILE = Path(__file__).parent / "tasks.db"
+DB_FILE = Path(__file__).parent / "databases" / "tasks.db"
 
 # single-letter aliases mapping (alias -> canonical)
 ALIASES = {
