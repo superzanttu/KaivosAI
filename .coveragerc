@@ -8,10 +8,9 @@ omit =
     kaivosai/cli_backup.py
     kaivosai/viewer.py
     kaivosai/migrations.py
-    kaivosai/robobrain.py
     kaivosai/clock.py
-    kaivosai/db.py
-    kaivosai/exceptions.py
-    kaivosai/map.py
-    kaivosai/models.py
+include =
+    kaivosai/__init__.py
+    kaivosai/config.py
 show_missing = True
+fail_under = 100
