@@ -128,15 +128,43 @@ def expand_aliases(parts: List[str]) -> List[str]:
 def run_urwid_tui(game_map: Map, clock: GameClock, conn):
     """Run the Urwid-based TUI with map, object list, clock and command input."""
     
-    # Define color palette
+    # Define color palette with rich colors
     palette = [
+        # Object colors (bright)
         ('robot', 'light cyan', 'default'),
         ('mine', 'yellow', 'default'),
         ('storage', 'light green', 'default'),
         ('base', 'light magenta', 'default'),
         ('rock', 'dark gray', 'default'),
-        ('empty', 'dark gray', 'default'),
+        ('empty', 'black', 'default'),
+        
+        # Status colors
+        ('success', 'light green', 'default'),
+        ('warning', 'yellow', 'default'),
+        ('error', 'light red', 'default'),
+        ('info', 'light blue', 'default'),
+        ('dim', 'dark gray', 'default'),
+        
+        # Object status (with background)
+        ('robot_full', 'black', 'light cyan'),
+        ('robot_empty', 'dark cyan', 'default'),
+        ('mine_full', 'black', 'yellow'),
+        ('mine_empty', 'dark red', 'default'),
+        ('storage_full', 'black', 'light green'),
+        ('storage_empty', 'dark green', 'default'),
+        ('base_full', 'black', 'light magenta'),
+        ('base_empty', 'dark magenta', 'default'),
+        
+        # Event type colors
+        ('event_good', 'light green', 'default'),
+        ('event_bad', 'light red', 'default'),
+        ('event_neutral', 'white', 'default'),
+        ('event_time', 'dark cyan', 'default'),
+        
+        # UI elements
         ('version_banner', 'black', 'light green'),
+        ('title', 'light blue,bold', 'default'),
+        ('border', 'dark cyan', 'default'),
     ]
     
     # Widgets
@@ -185,45 +213,128 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         # Build markup list for colored text
         markup = []
         
-        # Column labels
-        col_labels = '   ' + ' '.join(str(x % 10) for x in range(minx, maxx + 1)) + '\n'
-        markup.append(col_labels)
+        # Column labels in 3 rows: hundreds, tens, ones (for coordinates 0-999)
+        # Row 1: Hundreds
+        markup.append(('dim', '    '))
+        for x in range(minx, maxx + 1):
+            hundreds = (x // 100) % 10
+            if hundreds > 0:
+                markup.append(('info', str(hundreds)))
+            else:
+                markup.append(('dim', ' '))
+            markup.append(' ')
+        markup.append('\n')
         
-        # Build grid with colors
+        # Row 2: Tens
+        markup.append(('dim', '    '))
+        for x in range(minx, maxx + 1):
+            tens = (x // 10) % 10
+            if tens > 0 or x >= 10:
+                markup.append(('info', str(tens)))
+            else:
+                markup.append(('dim', ' '))
+            markup.append(' ')
+        markup.append('\n')
+        
+        # Row 3: Ones
+        markup.append(('dim', '    '))
+        for x in range(minx, maxx + 1):
+            markup.append(('info', str(x % 10)))
+            markup.append(' ')
+        markup.append('\n')
+        
+        # Separator line
+        markup.append(('dim', '   +'))
+        markup.append(('dim', '-' * (w * 2)))
+        markup.append('\n')
+        
+        # Collect all robot paths for display
+        path_positions = set()
+        for pos, obj in game_map.cells.items():
+            if isinstance(obj, Robot):
+                path = getattr(obj, '_move_path', None)
+                if path:
+                    # Add all positions in the path to the set
+                    path_positions.update(path)
+        
+        # Build grid with clear ASCII symbols and status colors
         for y in range(miny, maxy + 1):
-            # Row label
-            markup.append(f"{y:2d} ")
+            # Row label with separator (support 0-999)
+            markup.append(('info', f"{y:3d}"))
+            markup.append(('dim', '|'))
+            
             for x in range(minx, maxx + 1):
-                obj = game_map.get((x, y))
+                pos = (x, y)
+                obj = game_map.get(pos)
+                
                 if obj is None:
-                    markup.append(('empty', '. '))
+                    # Check if this is part of a robot's path
+                    if pos in path_positions:
+                        markup.append(('dim', '··'))
+                    else:
+                        markup.append(('empty', '..'))
                 elif isinstance(obj, Robot):
-                    markup.append(('robot', 'R '))
+                    # Show robot with status-based color
+                    if obj.inventory >= obj.capacity:
+                        markup.append(('robot_full', 'R!'))
+                    elif obj.inventory == 0:
+                        markup.append(('robot_empty', 'R.'))
+                    else:
+                        markup.append(('robot', 'R '))
                 elif isinstance(obj, Mine):
-                    markup.append(('mine', 'M '))
+                    # Show mine with status
+                    if obj.stored >= obj.capacity:
+                        markup.append(('mine_full', 'M!'))
+                    elif obj.stored == 0:
+                        markup.append(('mine_empty', 'M.'))
+                    else:
+                        markup.append(('mine', 'M '))
                 elif isinstance(obj, Storage):
-                    markup.append(('storage', 'S '))
+                    # Show storage with status
+                    if obj.stored >= obj.capacity:
+                        markup.append(('storage_full', 'S!'))
+                    elif obj.stored == 0:
+                        markup.append(('storage_empty', 'S.'))
+                    else:
+                        markup.append(('storage', 'S '))
                 elif isinstance(obj, Base):
-                    markup.append(('base', 'B '))
+                    # Show base with status
+                    if obj.stored > 0:
+                        markup.append(('base', 'B+'))
+                    else:
+                        markup.append(('base_empty', 'B.'))
                 elif isinstance(obj, Rock):
-                    markup.append(('rock', '# '))
+                    markup.append(('rock', '##'))
                 else:
-                    markup.append('? ')
+                    markup.append('??')
             markup.append('\n')
         
-        markup.append('\nLegend: ')
+        # Legend with clear symbols
+        markup.append('\n')
+        markup.append(('title', 'Legend: '))
         markup.append(('robot', 'R=Robot '))
         markup.append(('mine', 'M=Mine '))
         markup.append(('storage', 'S=Storage '))
         markup.append(('base', 'B=Base '))
-        markup.append(('rock', '#=Rock'))
+        markup.append(('rock', '#=Rock '))
+        markup.append('\n')
+        markup.append(('dim', 'Status: '))
+        markup.append(('success', '! =Full '))
+        markup.append(('warning', '. =Empty '))
+        markup.append(('info', '+ =Active'))
         
         return markup
     
     def build_object_list():
-        """Build object list display."""
-        lines: List[str] = []
-        for p, o in sorted(game_map.cells.items(), key=lambda kv: (getattr(kv[1], 'id', 0) or 0)):
+        """Build object list display with colors and status indicators."""
+        markup = []
+        objects = sorted(game_map.cells.items(), key=lambda kv: (getattr(kv[1], 'id', 0) or 0))
+        
+        if not objects or all(isinstance(o[1], Rock) for o in objects):
+            markup.append(('dim', 'No objects'))
+            return markup
+        
+        for p, o in objects:
             # Skip rocks in object list
             if isinstance(o, Rock):
                 continue
@@ -231,24 +342,88 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             name = getattr(o, 'name', None) or type(o).__name__
             x, y = p
             
-            # Show material storage info
-            stored = getattr(o, 'stored', None)
-            capacity = getattr(o, 'capacity', None)
-            inventory = getattr(o, 'inventory', None)
-            
-            info = f"{oid:2} {name:12s} ({x:2},{y:2})"
-            if inventory is not None:  # Robot
-                info += f" inv:{inventory}/{capacity}"
-            elif stored is not None and capacity is not None:  # Mine, Storage, Base
-                info += f" mat:{stored}/{capacity}"
-            
-            lines.append(info)
-        return '\n'.join(lines) if lines else 'No objects'
+            # Use same symbols as map for consistency
+            if isinstance(o, Robot):
+                inventory = o.inventory
+                capacity = o.capacity
+                pct = int(inventory / capacity * 10) if capacity > 0 else 0
+                
+                if inventory >= capacity:
+                    color = 'robot_full'
+                    bar = '[' + '=' * 10 + ']'
+                elif inventory == 0:
+                    color = 'robot_empty'
+                    bar = '[' + '.' * 10 + ']'
+                else:
+                    color = 'robot'
+                    bar = '[' + '=' * pct + '.' * (10 - pct) + ']'
+                
+                markup.append((color, f"R {oid:2d} {name:10s}"))
+                markup.append(('dim', f" @({x:2d},{y:2d}) "))
+                markup.append((color, f"{bar} {inventory}/{capacity}"))
+                markup.append('\n')
+                
+            elif isinstance(o, Mine):
+                stored = o.stored
+                capacity = o.capacity
+                pct = int(stored / capacity * 10) if capacity > 0 else 0
+                
+                if stored >= capacity:
+                    color = 'mine_full'
+                    bar = '[' + '=' * 10 + ']'
+                elif stored == 0:
+                    color = 'mine_empty'
+                    bar = '[' + '.' * 10 + ']'
+                else:
+                    color = 'mine'
+                    bar = '[' + '=' * pct + '.' * (10 - pct) + ']'
+                
+                markup.append((color, f"M {oid:2d} {name:10s}"))
+                markup.append(('dim', f" @({x:2d},{y:2d}) "))
+                markup.append((color, f"{bar} {stored}/{capacity}"))
+                markup.append('\n')
+                
+            elif isinstance(o, Storage):
+                stored = o.stored
+                capacity = o.capacity
+                pct = int(stored / capacity * 10) if capacity > 0 else 0
+                
+                if stored >= capacity:
+                    color = 'storage_full'
+                    bar = '[' + '=' * 10 + ']'
+                elif stored == 0:
+                    color = 'storage_empty'
+                    bar = '[' + '.' * 10 + ']'
+                else:
+                    color = 'storage'
+                    bar = '[' + '=' * pct + '.' * (10 - pct) + ']'
+                
+                markup.append((color, f"S {oid:2d} {name:10s}"))
+                markup.append(('dim', f" @({x:2d},{y:2d}) "))
+                markup.append((color, f"{bar} {stored}/{capacity}"))
+                markup.append('\n')
+                
+            elif isinstance(o, Base):
+                stored = o.stored
+                
+                if stored > 0:
+                    color = 'base'
+                    status = 'ACTIVE'
+                else:
+                    color = 'base_empty'
+                    status = 'IDLE'
+                
+                markup.append((color, f"B {oid:2d} {name:10s}"))
+                markup.append(('dim', f" @({x:2d},{y:2d}) "))
+                markup.append((color, f"{status} mat:{stored}"))
+                markup.append('\\n')
+        
+        return markup
     
     def build_events_display():
-        """Build recent events list."""
+        """Build recent events list with color-coded event types."""
         if not conn:
-            return 'No database connection'
+            return [('dim', 'No database connection')]
         
         from .db import get_recent_events
         from .clock import GameClock
@@ -256,27 +431,65 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         try:
             events = get_recent_events(conn, limit=15)
             if not events:
-                return 'No events yet'
+                return [('dim', 'No events yet')]
             
-            lines: List[str] = []
+            markup = []
             for event in events:
                 timestamp, obj_id, obj_type, event_type, message, x, y = event
-                # Format timestamp as W1 D1 HH:MM:SS
+                # Format timestamp
                 weeks, remainder = divmod(int(timestamp), 7 * 24 * 3600)
                 days, remainder = divmod(remainder, 24 * 3600)
                 hours, remainder = divmod(remainder, 3600)
                 minutes, seconds = divmod(remainder, 60)
-                time_str = f"W{weeks+1} D{days+1} {hours:02d}:{minutes:02d}:{seconds:02d}"
+                time_str = f"W{weeks+1}D{days+1} {hours:02d}:{minutes:02d}"
+                
+                # Determine event color and ASCII symbol based on type
+                if event_type in ('robot_arrived', 'robot_loaded', 'robot_unloaded', 'base_supplied'):
+                    event_color = 'event_good'
+                    symbol = '+'
+                elif event_type in ('robot_blocked', 'robot_empty', 'mine_empty', 'storage_empty', 'base_empty'):
+                    event_color = 'event_bad'
+                    symbol = '!'
+                elif event_type in ('robot_full', 'mine_full', 'storage_full'):
+                    event_color = 'warning'
+                    symbol = '*'
+                else:
+                    event_color = 'event_neutral'
+                    symbol = '-'
+                
+                # Add object type indicator using same letters as map
+                if obj_type == 'robot':
+                    obj_letter = 'R'
+                    obj_color = 'robot'
+                elif obj_type == 'mine':
+                    obj_letter = 'M'
+                    obj_color = 'mine'
+                elif obj_type == 'storage':
+                    obj_letter = 'S'
+                    obj_color = 'storage'
+                elif obj_type == 'base':
+                    obj_letter = 'B'
+                    obj_color = 'base'
+                else:
+                    obj_letter = ''
+                    obj_color = 'dim'
                 
                 # Truncate message if too long
-                if len(message) > 40:
-                    message = message[:37] + '...'
+                if len(message) > 35:
+                    message = message[:32] + '...'
                 
-                lines.append(f"{time_str} {message}")
+                markup.append(('event_time', time_str))
+                markup.append(' ')
+                markup.append((event_color, symbol))
+                if obj_letter:
+                    markup.append((obj_color, obj_letter))
+                markup.append(' ')
+                markup.append((event_color, message))
+                markup.append('\n')
             
-            return '\n'.join(lines)
+            return markup
         except Exception as e:
-            return f'Error loading events: {e}'
+            return [('error', f'Error: {e}')]
     
     # 2x3 block digit render (width=2, height=3) using simple segments
     _digit_segments = {
