@@ -1,6 +1,23 @@
-"""Database layer for KaivosAI.
+"""Database layer for KaivosAI game state persistence.
 
-Provides connection helpers and CRUD for `game_objects`.
+Provides SQLite connection management and CRUD operations for game_objects table.
+All game state (buildings, robots, materials) is persisted to databases/game.db.
+
+Threading:
+    - Main thread (CLI/TUI) uses single connection for all operations
+    - GameClock thread uses separate connection with check_same_thread=False
+    - WAL mode enabled for better concurrent read performance
+
+Schema:
+    - game_objects: All physical objects (UNIQUE constraint on x,y)
+    - game_meta: Key-value store for game settings and clock state
+    - game_events: Event log for UI display
+
+Example:
+    >>> conn = get_game_conn()
+    >>> init_game_db(conn)
+    >>> robot = Robot(id=1, pos=(5,7))
+    >>> persist_object(conn, robot)
 """
 from typing import Optional, Tuple
 import sqlite3
@@ -12,6 +29,18 @@ GAME_DB = Path(__file__).parent.parent / "databases" / "game.db"
 
 
 def get_game_conn(path: Optional[Path] = None):
+    """Create SQLite connection with WAL mode enabled.
+    
+    Args:
+        path: Database file path (default: databases/game.db)
+        
+    Returns:
+        sqlite3.Connection with row_factory=Row and WAL mode
+        
+    Note:
+        Creates databases/ directory if it doesn't exist.
+        Timeout set to 10 seconds to handle concurrent access.
+    """
     p = path or GAME_DB
     # Ensure databases directory exists
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -23,6 +52,19 @@ def get_game_conn(path: Optional[Path] = None):
 
 
 def init_game_db(conn: sqlite3.Connection):
+    """Initialize database schema (idempotent - safe to call multiple times).
+    
+    Creates tables:
+        - game_objects: Physical entities with UNIQUE(x,y) constraint
+        - game_meta: Key-value store for game state
+        - game_events: Event log with cleanup after 1000 entries
+        
+    Args:
+        conn: Database connection
+        
+    Note:
+        Uses CREATE TABLE IF NOT EXISTS - safe for existing databases.
+    """
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS game_objects (
@@ -75,6 +117,23 @@ def init_game_db(conn: sqlite3.Connection):
 
 
 def persist_object(conn: sqlite3.Connection, obj):
+    """Save or update game object in database (UPSERT operation).
+    
+    Uses ON CONFLICT(x,y) DO UPDATE to handle position uniqueness constraint.
+    Falls back to DELETE+INSERT for old databases without UNIQUE constraint.
+    
+    Args:
+        conn: Database connection
+        obj: Game object (Robot, Mine, Storage, Base, Rock)
+        
+    Note:
+        Auto-commits the transaction.
+        Position (x,y) is the natural key - only one object per cell.
+        
+    Example:
+        >>> robot = Robot(id=1, name='Bot1', pos=(5,7), inventory=3)
+        >>> persist_object(conn, robot)
+    """
     obj_type = type(obj).__name__.lower()
     obj_id = getattr(obj, 'id', None)
     vals = {
@@ -165,17 +224,54 @@ def persist_object(conn: sqlite3.Connection, obj):
 
 
 def delete_object_db(conn: sqlite3.Connection, pos: Position):
+    """Delete game object at specified position.
+    
+    Args:
+        conn: Database connection
+        pos: (x, y) coordinates of object to delete
+        
+    Note:
+        Auto-commits the transaction.
+        Silently succeeds if no object at position.
+    """
     x, y = pos
     conn.execute("DELETE FROM game_objects WHERE x = ? AND y = ?", (x, y))
     conn.commit()
 
 
 def delete_object_by_id(conn: sqlite3.Connection, oid: int):
+    """Delete game object by ID.
+    
+    Args:
+        conn: Database connection
+        oid: Object ID to delete
+        
+    Note:
+        Auto-commits the transaction.
+        Silently succeeds if object ID doesn't exist.
+    """
     conn.execute("DELETE FROM game_objects WHERE id = ?", (oid,))
     conn.commit()
 
 
 def load_objects_from_db(conn: sqlite3.Connection):
+    """Load all game objects from database.
+    
+    Args:
+        conn: Database connection
+        
+    Returns:
+        List of sqlite3.Row objects with all object fields
+        
+    Note:
+        Returns raw database rows - use create_object() to instantiate model objects.
+        Map class handles conversion from rows to model instances.
+    
+    Example:
+        >>> rows = load_objects_from_db(conn)
+        >>> for row in rows:
+        ...     obj = create_object(row['type'], id=row['id'], pos=(row['x'], row['y']))
+    """
     cur = conn.execute("SELECT * FROM game_objects")
     return cur.fetchall()
 

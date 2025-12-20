@@ -1,3 +1,22 @@
+"""Game world map and spatial object management.
+
+Handles object placement, movement, pathfinding, and game tick logic.
+All game state interactions go through the Map class.
+
+Key responsibilities:
+    - Spatial storage (position -> object mapping)
+    - Object lifecycle (add, remove, move)
+    - Robot movement with pathfinding (BFS algorithm)
+    - Material production/consumption ticks
+    - Robot transfer operations (loading/unloading)
+    - RoboBASIC program execution ticks
+    
+Threading:
+    - Main thread only (no background threads)
+    - All ticks called explicitly from CLI refresh_display()
+    - Uses DB connection from main thread
+"""
+
 from typing import Tuple, Dict, Optional, List
 import sqlite3
 import threading
@@ -11,7 +30,39 @@ Position = Tuple[int, int]
 
 
 class Map:
+    """Game world map managing all objects and their spatial relationships.
+    
+    Provides grid-based world with:
+        - Position-based object storage (one object per cell)
+        - Robot movement with pathfinding
+        - Material production/consumption systems
+        - Transfer operations (1 material/second)
+        - RoboBASIC program execution
+        
+    Attributes:
+        width: Map width in cells
+        height: Map height in cells
+        conn: Optional SQLite connection for persistence
+        cells: Dict mapping (x,y) positions to game objects
+        
+    Example:
+        >>> conn = get_game_conn()
+        >>> game_map = Map(width=30, height=30, conn=conn)
+        >>> robot = Robot(id=1, pos=(5, 7))
+        >>> game_map.add_object(robot, (5, 7))
+    """
+    
     def __init__(self, width: int = 100, height: int = 100, conn: Optional[sqlite3.Connection] = None):
+        """Initialize game map and optionally load objects from database.
+        
+        Args:
+            width: Map width in cells (default 100)
+            height: Map height in cells (default 100)
+            conn: Optional database connection for persistence
+            
+        Note:
+            If conn provided, initializes schema and loads existing objects.
+        """
         self.width = width
         self.height = height
         self.conn = conn
@@ -38,17 +89,51 @@ class Map:
         # No background thread; movement happens on explicit tick_movement() calls
 
     def in_bounds(self, pos: Position) -> bool:
+        """Check if position is within map boundaries.
+        
+        Args:
+            pos: (x, y) coordinates to check
+            
+        Returns:
+            True if position is inside map bounds
+        """
         x, y = pos
         return 0 <= x < self.width and 0 <= y < self.height
 
     def is_occupied(self, pos: Position) -> bool:
+        """Check if position has an object.
+        
+        Args:
+            pos: (x, y) coordinates to check
+            
+        Returns:
+            True if object exists at position
+        """
         return pos in self.cells
 
     def get(self, pos: Position):
+        """Get object at position.
+        
+        Args:
+            pos: (x, y) coordinates
+            
+        Returns:
+            Object at position or None if empty
+        """
         return self.cells.get(pos)
     
     def get_adjacent_objects(self, pos: Position):
-        """Get objects adjacent to position (up, down, left, right)."""
+        """Get objects in 4-directional adjacent cells (up/down/left/right).
+        
+        Args:
+            pos: Center position
+            
+        Returns:
+            List of objects in adjacent cells (0-4 objects)
+            
+        Note:
+            Does not include diagonals. Returns empty list if no adjacent objects.
+        """
         x, y = pos
         adjacent = []
         for dx, dy in [(0, 1), (0, -1), (-1, 0), (1, 0)]:
@@ -59,6 +144,18 @@ class Map:
         return adjacent
 
     def add_object(self, obj, pos: Position):
+        """Add object to map at specified position.
+        
+        Args:
+            obj: Game object to add
+            pos: (x, y) position to place object
+            
+        Raises:
+            ValueError: If position out of bounds or already occupied
+            
+        Note:
+            Automatically persists to database if connection available.
+        """
         if not self.in_bounds(pos):
             raise ValueError("Position out of bounds")
         if self.is_occupied(pos):
@@ -71,9 +168,17 @@ class Map:
         return True
 
     def remove_object(self, pos_or_id):
-        """Remove by position tuple `(x,y)` or by integer `id`.
-
-        Returns the removed object or None if not found.
+        """Remove object by position or ID.
+        
+        Args:
+            pos_or_id: Either (x,y) position tuple or integer object ID
+            
+        Returns:
+            Removed object or None if not found
+            
+        Note:
+            Searches in-memory cells first, then database if connection available.
+            Automatically removes from database.
         """
         # Remove by position
         if isinstance(pos_or_id, tuple):
@@ -115,6 +220,23 @@ class Map:
         return None
 
     def move_object(self, from_pos: Position, to_pos: Position):
+        """Move object from one position to another instantly.
+        
+        Args:
+            from_pos: Current object position
+            to_pos: Destination position
+            
+        Returns:
+            True if successful
+            
+        Raises:
+            ValueError: If positions out of bounds, source empty, or destination occupied
+            
+        Note:
+            This is instant teleport, not pathfinding movement.
+            For robot movement, use command_move_robot() instead.
+            Automatically updates database with delete+persist.
+        """
         if not self.in_bounds(from_pos) or not self.in_bounds(to_pos):
             raise ValueError("Position out of bounds")
         if from_pos not in self.cells:
@@ -144,15 +266,22 @@ class Map:
     # Call tick_movement() once per game second to advance all robots one step.
     
     def command_move_robot(self, robot_id: int, target: Position, stop_distance: int = 0) -> bool:
-        """Assign a robot to move to a target position.
+        """Assign robot to move to target position using pathfinding.
         
         Args:
             robot_id: ID of the robot to move
             target: Target position (x, y)
             stop_distance: Stop N cells away from target (0 = go all the way)
         
-        Returns True if movement started, False if already at target or no path found.
-        Raises ValueError if robot not found or target invalid.
+        Returns:
+            True if movement started, False if already at target or no path found
+            
+        Raises:
+            ValueError: If robot not found, target invalid, or target occupied (when stop_distance=0)
+            
+        Note:
+            Uses BFS pathfinding. Stores path in robot._move_path for tick_movement().
+            Automatically truncates path if stop_distance > 0.
         """
         # Find robot by ID
         robot = None
@@ -204,8 +333,14 @@ class Map:
     def tick_movement(self):
         """Advance all robots one step along their paths.
         
-        Call this once per game second (or as needed). Each robot takes one step
-        toward its goal. If a path is blocked, it's recomputed.
+        Called once per game second (or as needed). Each robot with active movement
+        takes one step toward its goal. If path is blocked, automatically recomputes.
+        
+        Note:
+            - Moves robots one cell per tick
+            - Automatically clears path when destination reached
+            - Logs movement events to database if connection available
+            - Stops if path blocked and can't be recomputed
         """
         from .clock import GameClock
         # Get game time for event logging
@@ -281,6 +416,13 @@ class Map:
         
         Args:
             game_seconds: Current game time in seconds
+            
+        Note:
+            - Transfers 1 material per second from source to robot (loading)
+            - Transfers 1 material per second from robot to destination (unloading)
+            - Automatically stops when source empty, destination full, or robot capacity reached
+            - Logs transfer completion events to database
+            - Works with Mine, Storage, Base, and other Robot objects
         """
         from .models import Robot, Mine, Base, Storage
         from .db import persist_object, log_event
@@ -434,6 +576,13 @@ class Map:
         
         Args:
             game_seconds: Current game time in seconds
+            
+        Note:
+            - Mines: Produce 1 material/10s if not full (max capacity)
+            - Bases: Consume 1 material/10s if available
+            - Storage: Monitors full/empty status
+            - Logs: mine_full, mine_empty, base_empty, base_supplied, storage_full, storage_empty events
+            - Automatically persists changed objects to database
         """
         from .models import Mine, Base, Storage
         
@@ -499,13 +648,62 @@ class Map:
                     from .db import persist_object
                     persist_object(self.conn, obj)
     
+    def tick_programs(self, game_seconds: int):
+        """Execute one line of RoboBASIC program for each running robot.
+        
+        Args:
+            game_seconds: Current game time in seconds
+            
+        Note:
+            - Executes 1 line per second for each robot with active program
+            - Automatically advances program counter after each line
+            - Stops on error or program completion
+            - Logs execution events and errors to database
+            - Uses RoboBRAIN virtual machine for command execution
+        """
+        from .models import Robot
+        from .robobrain import RoboBRAINExecutor
+        
+        executor = RoboBRAINExecutor()
+        
+        for pos, obj in list(self.cells.items()):
+            if isinstance(obj, Robot) and obj._program_running:
+                # Check if robot is blocked
+                if game_seconds < obj._blocked_until:
+                    continue
+                
+                # Execute next line
+                result = executor.execute_next_line(obj, self, game_seconds)
+                
+                # Log errors or status
+                if result and self.conn:
+                    name = getattr(obj, 'name', f'Robot {obj.id}')
+                    log_event(self.conn, game_seconds, 'robot_program', 
+                             f'{name}: {result}', obj, pos)
+                
+                # Persist updated state
+                if self.conn:
+                    from .db import persist_object
+                    persist_object(self.conn, obj)
+    
     # ==================== Pathfinding ====================
 
     def _find_path(self, start: Position, goal: Position) -> List[Position]:
-        """Find a path from start to goal using BFS.
+        """Find shortest path from start to goal using BFS pathfinding.
         
-        Returns a list of positions (including goal, excluding start) to follow.
-        Returns empty list if no path exists.
+        Args:
+            start: Starting position (x, y)
+            goal: Goal position (x, y)
+            
+        Returns:
+            List of positions to follow (excluding start, including goal).
+            Empty list if no path exists or start == goal.
+            
+        Note:
+            - Uses BFS for shortest path (Manhattan distance)
+            - Only moves through empty cells (or goal cell)
+            - 4-directional movement (up/down/left/right)
+            - Ignores diagonal movement
         """
         from collections import deque
         
@@ -548,7 +746,17 @@ class Map:
         return []  # No path found
     
     def _neighbors(self, pos: Position) -> List[Position]:
-        """Return valid neighboring positions (4-directional: up, down, left, right)."""
+        """Return valid neighboring positions in 4 directions.
+        
+        Args:
+            pos: Center position
+            
+        Returns:
+            List of (x,y) positions for up/down/left/right neighbors within bounds
+            
+        Note:
+            Only returns positions inside map boundaries. Does not check occupancy.
+        """
         x, y = pos
         neighbors = []
         for nx, ny in [(x+1, y), (x-1, y), (x, y+1), (x, y-1)]:
@@ -557,7 +765,15 @@ class Map:
         return neighbors
 
     def generate_border_rocks(self):
-        """Generate rock boundary around map edges."""
+        """Generate rock boundary around all map edges.
+        
+        Returns:
+            Number of rocks added
+            
+        Note:
+            Creates Rock objects on all four edges (top/bottom/left/right).
+            Skips positions already occupied by other objects.
+        """
         rocks_added = 0
         # Top and bottom edges
         for x in range(self.width):
@@ -585,8 +801,17 @@ class Map:
         """Generate natural-looking rock formations inside the map.
         
         Args:
-            density: Probability of a rock cluster starting (0.0 to 1.0)
-            cluster_size: Average size of rock clusters
+            density: Probability of a rock cluster starting (0.0 to 1.0, default 0.05)
+            cluster_size: Average size of rock clusters (default 3)
+            
+        Returns:
+            Number of rocks added
+            
+        Note:
+            - Avoids edges (2 cells from border)
+            - Uses random walk algorithm for natural clustering
+            - Skips occupied positions
+            - Density of 0.05 = ~5% of cells become rock clusters
         """
         rocks_added = 0
         # Avoid edges (already have border rocks)
@@ -619,7 +844,13 @@ class Map:
             avg_size: Average number of rocks in cluster
         
         Returns:
-            List of (x, y) positions
+            List of (x, y) positions for the cluster
+            
+        Note:
+            - Uses Gaussian distribution for cluster size variation
+            - 8-directional random walk (including diagonals)
+            - 70% chance to continue from new position, 30% to return to start
+            - Creates organic, non-uniform rock formations
         """
         positions = [start_pos]
         current_pos = start_pos

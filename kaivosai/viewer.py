@@ -9,6 +9,17 @@ from .clock import GameClock
 
 
 def auto_bounds(rows):
+    """Compute viewport bounds centered around existing objects.
+
+    Args:
+        rows: Iterable of DB rows with 'x' and 'y' coordinates
+
+    Returns:
+        Tuple `(minx, maxx, miny, maxy)` with a 2-cell margin.
+
+    Note:
+        Returns default `(0,9,0,9)` if no rows found.
+    """
     xs = [r['x'] for r in rows]
     ys = [r['y'] for r in rows]
     if not xs or not ys:
@@ -21,6 +32,23 @@ def auto_bounds(rows):
 
 
 def build_grid_text(rows, minx, maxx, miny, maxy, header: str = "") -> str:
+    """Render a simple ASCII grid representation of game objects.
+
+    Args:
+        rows: Iterable of rows with 'x', 'y', and 'type'
+        minx: Minimum x coordinate
+        maxx: Maximum x coordinate
+        miny: Minimum y coordinate
+        maxy: Maximum y coordinate
+        header: Optional header string shown above the grid
+
+    Returns:
+        Multi-line string with coordinates and legend.
+
+    Note:
+        Uses first letter of type as symbol: R/M/S/B/#.
+        Limits region to 160x80 to avoid overly large render.
+    """
     w = maxx - minx + 1
     h = maxy - miny + 1
     if w <= 0 or h <= 0:
@@ -50,6 +78,16 @@ def build_grid_text(rows, minx, maxx, miny, maxy, header: str = "") -> str:
 
 
 def run_viewer(poll_seconds: float = 0.5):
+    """Run the read-only Urwid viewer that polls the database.
+
+    Args:
+        poll_seconds: Refresh interval in seconds (default 0.5s)
+
+    Note:
+        - Read-only: never writes to the database
+        - Displays object count and clock (if available)
+        - Quit with 'q', 'Q', or ESC
+    """
     import urwid  # type: ignore
     
     conn = get_game_conn()
@@ -63,6 +101,7 @@ def run_viewer(poll_seconds: float = 0.5):
     fill = urwid.Filler(text, valign='top')
 
     def refresh(loop, user_data=None):
+        """Refresh the grid text and reschedule next update."""
         try:
             rows = list(conn.execute('SELECT id,name,x,y,type FROM game_objects'))
         except Exception:
@@ -85,6 +124,7 @@ def run_viewer(poll_seconds: float = 0.5):
         loop.set_alarm_in(poll_seconds, refresh)
 
     def unhandled(key):
+        """Handle quit keys for viewer loop."""
         if key in ('q', 'Q', 'esc'):
             raise urwid.ExitMainLoop()
 

@@ -1,4 +1,37 @@
-"""CLI and Urwid TUI for KaivosAI."""
+"""CLI and Urwid TUI for KaivosAI.
+
+Main user interface providing:
+    - Terminal-based UI using Urwid library
+    - Natural language command processor with aliases
+    - Colored map display (robots, mines, storage, bases, rocks)
+    - Object list with inventory/material status
+    - Recent events display
+    - RoboBASIC program editor with syntax validation
+    - Game clock display (Week/Day/Time format)
+    - Auto-refresh every 0.5s for real-time updates
+    
+Key components:
+    - run_urwid_tui(): Main TUI loop (entry point)
+    - process_command(): Natural language command parser (~500 lines)
+    - build_map_display(): Colored ASCII map with legend
+    - build_object_list(): Object status with materials/inventory
+    - build_events_display(): Recent game events log
+    - show_command_editor(): Robot program editor with validation
+    
+Command categories:
+    - Object management: create, delete, move
+    - Robot control: goto, load, unload, program
+    - Map operations: show, list, terrain, demo, reset
+    - System: help, version, quit, pause, resume
+    
+Threading:
+    - Main thread: Urwid event loop + UI refresh
+    - Background thread: GameClock (time progression)
+    
+Note:
+    Display updates 2x per second (0.5s tick rate).
+    All game logic ticks (movement, production, transfers, programs) called from refresh_display().
+"""
 from typing import Tuple, List
 import shlex
 import random
@@ -78,12 +111,19 @@ class CommandEdit(urwid.Edit):
     """Edit widget with tab completion support."""
     
     def __init__(self, *args, **kwargs):
+        """Initialize edit widget and tab completion state."""
         super().__init__(*args, **kwargs)
         self.completions = COMPLETIONS
         self.completion_index = -1
         self.original_text = ""
     
     def keypress(self, size, key):
+        """Handle Tab-based completions; delegate other keys to parent.
+
+        Starts a completion cycle on first Tab for the last word,
+        cycles through matches on subsequent Tabs, and resets the
+        cycle on any non-Tab key.
+        """
         if key == 'tab':
             text = self.get_edit_text()
             
@@ -121,12 +161,37 @@ class CommandEdit(urwid.Edit):
 
 
 def expand_aliases(parts: List[str]) -> List[str]:
-    """Expand command aliases to full form."""
+    """Expand command aliases to their full form.
+    
+    Args:
+        parts: List of command tokens
+        
+    Returns:
+        List with aliases expanded (e.g., ['r', 'goto'] -> ['robot', 'goto'])
+        
+    Note:
+        Preserves unknown tokens unchanged. See COMMAND_ALIASES for mappings.
+    """
     return [COMMAND_ALIASES.get(p, p) for p in parts]
 
 
 def run_urwid_tui(game_map: Map, clock: GameClock, conn):
-    """Run the Urwid-based TUI with map, object list, clock and command input."""
+    """Run the Urwid-based terminal UI with map, objects, events, and commands.
+    
+    Args:
+        game_map: Game world with objects and spatial state
+        clock: Background game clock for time progression
+        conn: Database connection for persistence
+        
+    Note:
+        - Creates Urwid main loop with 0.5s refresh rate
+        - Defines color palette for objects, status, events
+        - Builds UI with map display (left), object list + events (right)
+        - Command input at bottom with echo/result display
+        - Auto-centers map on objects
+        - Tick rate: 0.5s for all game systems (movement, production, transfers, programs)
+        - Exit with 'quit' command or Ctrl+C
+    """
     
     # Define color palette with rich colors
     palette = [
@@ -197,9 +262,27 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
     editor_state = {'robot': None, 'overlay': None}
     
     def show_command_editor(robot):
-        """Show modal text editor for robot commands."""
+        """Show modal RoboBASIC program editor for robot.
+        
+        Args:
+            robot: Robot object to edit program for
+            
+        Note:
+            - Displays 10-line editor (max 15 chars per line)
+            - Shows syntax validation errors with line numbers
+            - F2: Save and validate program
+            - ESC: Cancel without saving
+            - Cannot edit while program is running (must stop first)
+            - Uses RoboBASICParser for syntax validation
+            - Saves to robot.commands_text (list of strings)
+        """
         if editor_state['robot'] is not None:
             return  # Already editing another robot
+        
+        # Check if robot program is running
+        if hasattr(robot, '_program_running') and robot._program_running:
+            status_text.set_text(f'Cannot edit: Robot {robot.id} program is running. Stop it first with: robot {robot.id} stop')
+            return
         
         editor_state['robot'] = robot
         
@@ -251,11 +334,29 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                 status_text.set_text('Command editing cancelled')
                 return True
             elif key == 'f2':
-                # Save changes
+                # Save changes - first validate syntax
+                from .robobrain import RoboBASICParser
+                
+                # Collect edited text
+                edited_lines = []
                 for i, edit_widget in enumerate(lines):
                     text = edit_widget.get_edit_text()
                     # Truncate to 20 chars
                     robot.commands_text[i] = text[:20]
+                    edited_lines.append(text[:20])
+                
+                # Parse and validate program
+                parsed, labels, errors = RoboBASICParser.parse_program(edited_lines)
+                
+                if errors:
+                    # Show debug dialog with syntax errors
+                    show_debug_dialog('SYNTAX ERRORS', errors)
+                    # Don't save, don't close editor
+                    return True
+                
+                # Valid program - store parsed version
+                robot._parsed_program = parsed
+                robot._program_labels = labels
                 
                 # Persist to database
                 if conn:
@@ -297,7 +398,20 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         loop.widget = overlay_widget
     
     def build_map_display():
-        """Build ASCII map text with color markup."""
+        """Build ASCII map display with colored objects and coordinates.
+        
+        Returns:
+            List of (style, text) tuples for urwid.Text markup
+            
+        Note:
+            - Auto-centers on objects (min/max positions + 2 cell margin)
+            - Max display size: 120x60 (shows error if larger)
+            - Coordinate labels: 3 rows (hundreds/tens/ones) at top, row labels on left
+            - Object symbols: R=Robot, M=Mine, S=Storage, B=Base, K=Rock, .=Empty
+            - Color coding: Objects highlighted, empty cells dim
+            - Shows object capacity status (full/empty) with background colors
+            - Legend at bottom with object counts
+        """
         if not game_map.cells:
             minx = 0; miny = 0; maxx = 9; maxy = 9
         else:
@@ -429,7 +543,21 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         return markup
     
     def build_object_list():
-        """Build object list display with colors and status indicators."""
+        """Build object list display with colors and status indicators.
+        
+        Returns:
+            List of (style, text) tuples for urwid.Text markup
+            
+        Note:
+            - Shows ID, name, position, and material/inventory status
+            - Robot: Shows inventory (X/Y), target position if moving, transfer status, program status
+            - Mine: Shows stored materials (X/Y)
+            - Storage: Shows stored materials (X/Y)
+            - Base: Shows bank materials
+            - Rock: Shows position only
+            - Color-coded by object type
+            - Sorted by ID for consistent display
+        """
         markup = []
         objects = sorted(game_map.cells.items(), key=lambda kv: (getattr(kv[1], 'id', 0) or 0))
         
@@ -538,7 +666,18 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         return markup
     
     def build_events_display():
-        """Build recent events list with color-coded event types."""
+        """Build recent events list with color-coded event types.
+        
+        Returns:
+            List of (style, text) tuples for urwid.Text markup
+            
+        Note:
+            - Shows last 15 events from game_events table
+            - Timestamp format: W<week>D<day>HH:MM:SS
+            - Color-coded by event type: Good (robot_loaded, mine_full), Bad (robot_blocked), Neutral (robot_arrived)
+            - Shows position if available
+            - Empty state: "No events yet"
+        """
         if not conn:
             return [('dim', 'No database connection')]
         
@@ -724,6 +863,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         )
         
         def handle_version_key(key):
+            """Close update dialog and exit on any key press."""
             # Any key press: quit application
             flag_file = Path(__file__).parent.parent / "flag_new_version.lck"
             try:
@@ -735,8 +875,64 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         loop.widget = overlay
         loop.unhandled_input = handle_version_key
     
+    def show_debug_dialog(title, errors):
+        """Show modal dialog for displaying debug messages (syntax errors, etc)."""
+        # Format error list
+        error_lines = []
+        for error in errors:
+            error_lines.append(('event_bad', f"• {error}\n"))
+        
+        # Create dialog content
+        banner = urwid.Text(('event_bad', f' {title} '), align='center')
+        error_text = urwid.Text(error_lines)
+        error_walker = urwid.SimpleFocusListWalker([error_text])
+        error_listbox = urwid.ListBox(error_walker)
+        instructions = urwid.Text('\nPress ESC to close', align='center')
+        
+        dialog_content = urwid.Pile([
+            urwid.Divider(),
+            banner,
+            urwid.Divider(),
+            ('weight', 1, error_listbox),
+            ('pack', instructions),
+            urwid.Divider(),
+        ])
+        
+        dialog = urwid.LineBox(dialog_content, title='Debug Output')
+        overlay = urwid.Overlay(
+            dialog,
+            main_pile,
+            align='center',
+            width=('relative', 60),
+            valign='middle',
+            height=('relative', 50)
+        )
+        
+        def handle_debug_key(key):
+            """Close debug dialog on ESC or any key press."""
+            # ESC or any key: close dialog
+            if key == 'esc' or key:
+                loop.widget = main_pile
+                loop.unhandled_input = main_unhandled_input
+                return True
+        
+        loop.widget = overlay
+        loop.unhandled_input = handle_debug_key
+    
     def refresh_display(loop=None, user_data=None):
-        """Update all display widgets and tick robot movement."""
+        """Update all display widgets and tick all game systems.
+        
+        Args:
+            loop: Urwid main loop (optional)
+            user_data: User data from alarm callback (unused)
+            
+        Note:
+            - Called every 0.5s by urwid alarm
+            - Ticks: movement, production, transfers, RoboBRAIN programs
+            - Updates: map display, object list, events, clock
+            - Checks for flag_new_version.lck (triggers restart dialog)
+            - Re-schedules next refresh with loop.set_alarm_in(0.5)
+        """
         # Check if version flag file exists (signals code reload)
         from pathlib import Path
         flag_file = Path(__file__).parent.parent / "flag_new_version.lck"
@@ -754,6 +950,8 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         game_map.tick_production(game_seconds)
         # Handle robot material transfers (loading/unloading)
         game_map.tick_transfer(game_seconds)
+        # Execute robot RoboBASIC programs
+        game_map.tick_programs(game_seconds)
         map_text.set_text(build_map_display())
         object_list_text.set_text(build_object_list())
         events_text.set_text(build_events_display())
@@ -761,26 +959,573 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         if loop:
             loop.set_alarm_in(0.5, refresh_display)
     
-    def process_command(cmd_line: str):
-        """Process a command and return status message.
+    def _handle_system(parts: list) -> str:
+        """Handle system commands: quit, help, version, pause, resume, optimize.
         
-        Syntax: <object> [id] <verb> [params...]
-        Examples:
-            robot 3 goto 5 7       (r 3 g 5 7)
-            robot 3 goto 5 7 d 2   (stop 2 cells away)
-            robot 4 goto 5         (r 4 g 5, go next to object 5)
-            robot 4 goto 5 d 3     (stop 3 cells from object 5)
-            robot 3 load        (r 3 l)
-            robot 3 unload 5    (r 3 u 5)
-            create robot 5 7    (c robot 5 7 or c r 5 7)
-            delete 3            (d 3)
-            delete 5 7          (d 5 7)
-            list                (ls)
-            map                 (m)
+        Args:
+            parts: Parsed command parts starting with 'system'
+            
+        Returns:
+            Status message
         """
-        # Import models needed in this function (closure scope issue)
-        from .models import Robot, Mine, Storage, Base, Rock, create_object
+        from .models import Robot, Mine, Storage, Base
+        from .db import persist_object
         
+        if len(parts) < 2:
+            return 'Usage: system <help|version|quit|pause|resume|optimize>'
+        sub = parts[1]
+        
+        if sub == 'quit':
+            raise urwid.ExitMainLoop()
+        elif sub == 'help':
+            return process_command('help')
+        elif sub == 'version':
+            return f'KaivosAI version {VERSION}'
+        elif sub == 'pause':
+            clock.pause()
+            return 'Clock paused'
+        elif sub == 'resume':
+            clock.start()
+            return 'Clock resumed'
+        elif sub == 'optimize':
+            all_objects = [o for o in game_map.cells.values() 
+                          if isinstance(o, (Robot, Mine, Storage, Base))]
+            objects = sorted(all_objects, key=lambda o: o.id)
+            old_ids = [o.id for o in objects]
+            count = 0
+            
+            for new_id, obj in enumerate(objects, start=1):
+                if obj.id != new_id:
+                    obj.id = new_id
+                    count += 1
+            
+            if count > 0 and conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM game_objects")
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name='game_objects'")
+                conn.commit()
+                
+                for obj in game_map.cells.values():
+                    if isinstance(obj, (Robot, Mine, Storage, Base)):
+                        persist_object(conn, obj)
+                
+                game_seconds = clock.seconds if clock else 0
+                log_event(conn, game_seconds, 'system', 
+                         f'Optimized {count} object IDs: {old_ids} -> [1..{len(objects)}]', None, None)
+                return f'Optimized {count} object IDs to sequential order (1,2,3...). Total objects with IDs: {len(objects)}'
+            else:
+                return f'Object IDs are already optimized (1..{len(objects)})'
+        else:
+            return f"Unknown system command: {sub}"
+    
+    def _handle_map(parts: list) -> str:
+        """Handle map commands: show, list, terrain, demo, reset.
+        
+        Args:
+            parts: Parsed command parts starting with 'map'
+            
+        Returns:
+            Status message
+        """
+        import os
+        import random
+        import time
+        from .models import Mine, Storage, Base, Robot, create_object
+        
+        if len(parts) < 2:
+            return 'See Map panel'
+        sub = parts[1]
+        
+        if sub == 'show':
+            return 'See Map panel'
+        elif sub == 'list':
+            return 'See Objects panel'
+        elif sub == 'terrain':
+            density = 0.05
+            cluster_size = 3
+            if len(parts) >= 3:
+                try:
+                    density = float(parts[2])
+                    if not 0.0 <= density <= 1.0:
+                        return 'Density must be between 0.0 and 1.0'
+                except ValueError:
+                    return 'Density must be a number'
+            if len(parts) >= 4:
+                try:
+                    cluster_size = int(parts[3])
+                    if cluster_size < 1:
+                        return 'Cluster size must be at least 1'
+                except ValueError:
+                    return 'Cluster size must be a number'
+            try:
+                border, terrain = game_map.generate_full_terrain(density, cluster_size)
+                return f'Terrain generated: {border} border rocks, {terrain} interior rocks'
+            except Exception as e:
+                return f'Error: {e}'
+        elif sub == 'demo':
+            seed_value = int(time.time() * 1000000) + int.from_bytes(os.urandom(4), 'big')
+            random.seed(seed_value)
+            
+            free_positions = []
+            for x in range(1, 31):
+                for y in range(1, 31):
+                    if game_map.get((x, y)) is None:
+                        free_positions.append((x, y))
+            
+            if len(free_positions) < 4:
+                return 'Not enough free space for demo objects!'
+            
+            random.shuffle(free_positions)
+            positions = free_positions[:4]
+            
+            demo_objects = [
+                ('mine', None, 'Iron Mine', positions[0], {'durability': 25}),
+                ('storage', None, 'Storage A', positions[1], {'capacity': 50}),
+                ('base', None, 'Base', positions[2], {}),
+                ('robot', None, 'Bot', positions[3], {'capacity': 5}),
+            ]
+            added = 0
+            for typ, oid, name, pos, kwargs in demo_objects:
+                try:
+                    obj = create_object(typ, oid, name=name, pos=pos, **kwargs)
+                    game_map.remove_object(pos)
+                    game_map.add_object(obj, pos)
+                    added += 1
+                except Exception:
+                    pass
+            return f'Added {added} demo objects at random positions'
+        elif sub == 'reset':
+            for pos in list(game_map.cells.keys()):
+                game_map.remove_object(pos)
+            if game_map.conn:
+                try:
+                    game_map.conn.execute("DELETE FROM sqlite_sequence WHERE name='game_objects'")
+                    game_map.conn.commit()
+                except Exception:
+                    pass
+            clock.reset()
+            return 'Everything reset: map cleared, clock reset'
+        else:
+            return f"Unknown map command: {sub}. Try: show, list, terrain, demo, reset"
+    
+    def _handle_create(parts: list) -> str:
+        """Handle create object command.
+        
+        Args:
+            parts: Parsed command parts starting with 'create'
+            
+        Returns:
+            Status message
+        """
+        from .models import create_object
+        
+        if len(parts) < 4:
+            return 'Usage: create TYPE X Y (e.g. create robot 5 7)'
+        
+        typ = parts[1]
+        try:
+            x = int(parts[2])
+            y = int(parts[3])
+        except (ValueError, IndexError):
+            return 'Coordinates must be numbers'
+        
+        try:
+            obj = create_object(typ, None, pos=(x, y))
+            game_map.add_object(obj, (x, y))
+            return f'Created {typ} at ({x},{y})'
+        except Exception as e:
+            return f'Error: {e}'
+    
+    def _handle_delete(parts: list) -> str:
+        """Handle delete object command.
+        
+        Args:
+            parts: Parsed command parts starting with 'delete'
+            
+        Returns:
+            Status message
+        """
+        if len(parts) < 2:
+            return 'Usage: remove at X Y  or  remove ID'
+        
+        if parts[1] in ('at', 'pos', 'position'):
+            if len(parts) < 4:
+                return 'Usage: remove at X Y'
+            try:
+                x = int(parts[2])
+                y = int(parts[3])
+            except ValueError:
+                return 'Coordinates must be numbers'
+            obj = game_map.remove_object((x, y))
+            return f'Removed {type(obj).__name__ if obj else "nothing"}'
+        
+        if parts[1] in ('id', 'object', '#'):
+            if len(parts) < 3:
+                return 'Usage: remove id NUMBER'
+            try:
+                oid = int(parts[2])
+            except ValueError:
+                return 'ID must be a number'
+            obj = game_map.remove_object(oid)
+            return f'Removed {type(obj).__name__ if obj else "nothing"}'
+        
+        try:
+            val = int(parts[1])
+            if len(parts) == 2:
+                obj = game_map.remove_object(val)
+                return f'Removed {type(obj).__name__ if obj else "nothing"}'
+            else:
+                y = int(parts[2])
+                obj = game_map.remove_object((val, y))
+                return f'Removed {type(obj).__name__ if obj else "nothing"}'
+        except ValueError:
+            return 'Invalid coordinates or ID'
+    
+    def _handle_move(parts: list) -> str:
+        """Handle move object command.
+        
+        Args:
+            parts: Parsed command parts starting with 'move'
+            
+        Returns:
+            Status message
+        """
+        if 'from' in parts:
+            from_idx = parts.index('from')
+            to_idx = parts.index('to') if 'to' in parts else -1
+            if to_idx < 0 or to_idx - from_idx != 3:
+                return 'Usage: move from X Y to X Y'
+            try:
+                x1 = int(parts[from_idx + 1])
+                y1 = int(parts[from_idx + 2])
+                x2 = int(parts[to_idx + 1])
+                y2 = int(parts[to_idx + 2])
+            except (ValueError, IndexError):
+                return 'Coordinates must be numbers'
+        elif 'to' in parts:
+            to_idx = parts.index('to')
+            if to_idx != 3:
+                return 'Usage: move X Y to X Y'
+            try:
+                x1 = int(parts[1])
+                y1 = int(parts[2])
+                x2 = int(parts[to_idx + 1])
+                y2 = int(parts[to_idx + 2])
+            except (ValueError, IndexError):
+                return 'Coordinates must be numbers'
+        else:
+            if len(parts) < 5:
+                return 'Usage: move X Y to X Y'
+            try:
+                x1 = int(parts[1])
+                y1 = int(parts[2])
+                x2 = int(parts[3])
+                y2 = int(parts[4])
+            except ValueError:
+                return 'Coordinates must be numbers'
+        
+        try:
+            game_map.move_object((x1, y1), (x2, y2))
+            return f'Moved from ({x1},{y1}) to ({x2},{y2})'
+        except Exception as e:
+            return f'Error: {e}'
+    
+    def _handle_inspect(parts: list) -> str:
+        """Handle inspect position command.
+        
+        Args:
+            parts: Parsed command parts starting with 'inspect'
+            
+        Returns:
+            Status message
+        """
+        if len(parts) < 3:
+            return 'Usage: inspect X Y'
+        try:
+            x = int(parts[1])
+            y = int(parts[2])
+        except (ValueError, IndexError):
+            return 'Coordinates must be numbers'
+        obj = game_map.get((x, y))
+        if obj:
+            name = getattr(obj, 'name', type(obj).__name__)
+            return f'{name} at ({x},{y})'
+        return f'Nothing at ({x},{y})'
+    
+    def _handle_robot(parts: list) -> str:
+        """Handle robot command: movement, loading, unloading, programming.
+        
+        Args:
+            parts: Parsed command parts starting with 'robot'
+            
+        Returns:
+            Status message
+        """
+        from .models import Robot, Mine, Storage, Base
+        from .db import persist_object
+        from .robobrain import RoboBASICParser
+        
+        if len(parts) < 2:
+            return 'Usage: robot ID <command>'
+        try:
+            rid = int(parts[1])
+        except ValueError:
+            return 'Robot ID must be a number'
+        
+        robot = None
+        for obj in game_map.cells.values():
+            if isinstance(obj, Robot) and getattr(obj, 'id', None) == rid:
+                robot = obj
+                break
+        
+        if not robot:
+            return f'Robot {rid} not found'
+        
+        # Load command
+        if len(parts) >= 3 and parts[2] in ('load', 'take', 'pickup', 'get'):
+            adjacent = game_map.get_adjacent_objects(robot.pos)
+            valid = [o for o in adjacent if isinstance(o, (Mine, Storage, Base, Robot)) and o != robot]
+            if len(valid) == 0:
+                return 'No adjacent objects to load from (need Mine, Storage, Base, or Robot nearby)'
+            if len(valid) > 1:
+                return f'Multiple adjacent objects ({len(valid)}). Move robot to have only one adjacent object.'
+            
+            source = valid[0]
+            amount = None
+            if len(parts) >= 4:
+                try:
+                    amount = int(parts[3])
+                except ValueError:
+                    pass
+            
+            robot.start_loading(source, amount)
+            
+            if conn:
+                persist_object(conn, robot)
+                game_seconds = clock.seconds if clock else 0
+                source_name = getattr(source, 'name', type(source).__name__)
+                log_event(conn, game_seconds, 'robot_loading', 
+                         f'Robot {rid} started loading from {source_name} at ({robot.pos[0]},{robot.pos[1]})', robot, robot.pos)
+            
+            source_name = getattr(source, 'name', type(source).__name__)
+            transfer_amount = amount if amount is not None else (robot.capacity - robot.inventory)
+            return f'Robot {rid} started loading {transfer_amount} material from {source_name} (1/s). Inventory: {robot.inventory}/{robot.capacity}'
+        
+        # Program/edit commands
+        if len(parts) >= 3 and parts[2] in ('program', 'prg', 'prog'):
+            show_command_editor(robot)
+            return f'Editing commands for {robot.name}'
+        
+        # Start program execution
+        if len(parts) >= 3 and parts[2] in ('start', 'run', 'execute', 'go'):
+            parsed, labels, errors = RoboBASICParser.parse_program(robot.commands_text)
+            
+            if errors:
+                error_msg = '; '.join(errors[:3])
+                return f'Cannot start program: {error_msg}'
+            
+            robot._parsed_program = parsed
+            robot._program_labels = labels
+            robot._program_running = True
+            robot._program_counter = 0
+            robot._blocked_until = 0.0
+            
+            if conn:
+                persist_object(conn, robot)
+                game_seconds = clock.seconds if clock else 0
+                log_event(conn, game_seconds, 'robot_program', 
+                         f'Robot {rid} program started', robot, robot.pos)
+            
+            return f'Robot {rid} program started (RoboBRAIN active)'
+        
+        # Stop program execution
+        if len(parts) >= 3 and parts[2] in ('stop', 'halt', 'pause', 'end'):
+            robot._program_running = False
+            
+            if conn:
+                persist_object(conn, robot)
+                game_seconds = clock.seconds if clock else 0
+                log_event(conn, game_seconds, 'robot_program', 
+                         f'Robot {rid} program stopped', robot, robot.pos)
+            
+            return f'Robot {rid} program stopped'
+        
+        # Unload command
+        if len(parts) >= 3 and parts[2] in ('unload', 'dump', 'drop', 'put', 'store'):
+            adjacent = game_map.get_adjacent_objects(robot.pos)
+            valid = [o for o in adjacent if isinstance(o, (Storage, Base, Robot)) and o != robot]
+            if len(valid) == 0:
+                return 'No adjacent objects to unload to (need Storage, Base, or Robot nearby)'
+            if len(valid) > 1:
+                return f'Multiple adjacent objects ({len(valid)}). Move robot to have only one adjacent object.'
+            
+            target = valid[0]
+            amount = None
+            if len(parts) >= 4:
+                try:
+                    amount = int(parts[3])
+                except ValueError:
+                    pass
+            
+            robot.start_unloading(target, amount)
+            
+            if conn:
+                persist_object(conn, robot)
+                game_seconds = clock.seconds if clock else 0
+                target_name = getattr(target, 'name', type(target).__name__)
+                log_event(conn, game_seconds, 'robot_unloading', 
+                         f'Robot {rid} started unloading to {target_name} at ({robot.pos[0]},{robot.pos[1]})', robot, robot.pos)
+            
+            target_name = getattr(target, 'name', type(target).__name__)
+            transfer_amount = amount if amount is not None else robot.inventory
+            return f'Robot {rid} started unloading {transfer_amount} material to {target_name} (1/s). Inventory: {robot.inventory}/{robot.capacity}'
+        
+        # Movement commands
+        if len(parts) < 4:
+            return 'Usage: robot ID <go to X Y [distance N] | go to OBJ_ID [distance N] | load [amount] | unload [amount]>'
+        
+        offset = 2
+        if parts[2] in ('go', 'goto', 'g', 'move', 'm', 'walk'):
+            offset = 3
+        if offset < len(parts) and parts[offset] == 'to':
+            offset += 1
+        
+        stop_distance = 0
+        distance_keyword_idx = -1
+        
+        for i in range(offset, len(parts)):
+            if parts[i] in ('distance', 'dist', 'd'):
+                distance_keyword_idx = i
+                break
+        
+        if distance_keyword_idx >= 0:
+            if distance_keyword_idx + 1 < len(parts):
+                try:
+                    stop_distance = int(parts[distance_keyword_idx + 1])
+                except ValueError:
+                    return 'Distance must be a number'
+            else:
+                return 'Distance keyword requires a number'
+        
+        param_count = (distance_keyword_idx - offset) if distance_keyword_idx >= 0 else (len(parts) - offset)
+        
+        if param_count == 1:
+            try:
+                target_id = int(parts[offset])
+            except ValueError:
+                return 'Object ID must be a number'
+            
+            target_obj = None
+            for obj in game_map.cells.values():
+                if getattr(obj, 'id', None) == target_id:
+                    target_obj = obj
+                    break
+            
+            if not target_obj:
+                return f'Object {target_id} not found'
+            
+            if isinstance(target_obj, Robot):
+                return 'Cannot target robots. Use coordinates or target Mine/Storage/Base.'
+            
+            x, y = target_obj.pos
+            
+            if stop_distance == 0:
+                stop_distance = 1
+                
+        elif param_count >= 2:
+            try:
+                x = int(parts[offset])
+                y = int(parts[offset + 1])
+            except (ValueError, IndexError):
+                return 'Coordinates must be numbers'
+        else:
+            return 'Usage: robot ID go to X Y [distance N] or robot ID go to OBJ_ID [distance N]'
+        
+        try:
+            started = game_map.command_move_robot(rid, (x, y), stop_distance)
+            if started:
+                if conn:
+                    game_seconds = clock.seconds if clock else 0
+                    name = getattr(robot, 'name', f'Robot {rid}')
+                    dist_msg = f' (stop {stop_distance} cells away)' if stop_distance > 0 else ''
+                    log_event(conn, game_seconds, 'robot_moving', 
+                             f'{name} started moving to ({x},{y}){dist_msg} from ({robot.pos[0]},{robot.pos[1]})', robot, robot.pos)
+                dist_text = f' (stopping {stop_distance} cells away)' if stop_distance > 0 else ''
+                return f'Robot {rid} moving to ({x},{y}){dist_text}'
+            else:
+                return 'No path available or already at target'
+        except ValueError as e:
+            return f'Error: {e}'
+        except Exception as e:
+            return f'Error: {e}'
+    
+    def _build_help_text() -> str:
+        """Build help text for command reference.
+        
+        Returns:
+            Formatted help text with all available commands
+        """
+        return ("Commands (with shortcuts):\n"
+                "\n"
+                "ROBOT CONTROL:\n"
+                "• robot ID goto X Y [d N] (r ID g X Y [d N]) - move robot to position (stop N cells away)\n"
+                "• robot ID goto OBJ_ID [d N] (r ID g OBJ_ID [d N]) - move robot near object (stop N cells away)\n"
+                "• robot ID load [amount] (r ID l [N]) - load N materials from adjacent object\n"
+                "• robot ID unload [amount] (r ID u [N]) - unload N materials to adjacent object\n"
+                "• robot ID program (r ID p) - edit robot program (F2=save, ESC=cancel)\n"
+                "• robot ID start (r ID start) - start executing robot program\n"
+                "• robot ID stop (r ID stop) - stop executing robot program\n"
+                "\n"
+                "OBJECT MANAGEMENT:\n"
+                "• create TYPE X Y (c TYPE X Y) - create object at position (types: robot, mine, storage, base)\n"
+                "• delete ID (d ID) - remove object by ID\n"
+                "• delete X Y (d X Y) - remove object at position\n"
+                "• inspect X Y - inspect position (show what's there)\n"
+                "\n"
+                "MAP OPERATIONS:\n"
+                "• map show (map/m) - show map (displayed in left panel)\n"
+                "• map list (map ls) - show all objects (displayed in right panel)\n"
+                "• map terrain [density] [size] (map t [D] [S]) - generate terrain\n"
+                "  density: 0.0-1.0 (default 0.05), size: cluster size 1+ (default 3)\n"
+                "• map demo (map demo) - add 4 demo objects at random positions\n"
+                "• map reset (map reset) - clear map and reset clock\n"
+                "\n"
+                "SYSTEM COMMANDS:\n"
+                "• system pause - pause clock (stops production/consumption)\n"
+                "• system resume - resume clock\n"
+                "• system optimize - renumber object IDs sequentially (1,2,3...)\n"
+                "• system version - show KaivosAI version\n"
+                "• system help - show this help text\n"
+                "• system quit (quit) - exit game\n"
+                "\n"
+                "TIPS:\n"
+                "• Use 'r' instead of 'robot', 'c' instead of 'create', 'd' instead of 'delete'\n"
+                "• TAB for command completion\n"
+                "• Program syntax: type 'help' while editing to see RoboBASIC commands")
+    
+    def process_command(cmd_line: str):
+        """Process natural language command and return status message.
+        
+        Dispatches to handler functions based on first word (command name).
+        
+        Args:
+            cmd_line: Command string to parse
+            
+        Returns:
+            Status message string (success/error)
+        
+        Handler Functions:
+            - _handle_system: quit, help, version, pause, resume, optimize
+            - _handle_map: show, list, terrain, demo, reset
+            - _handle_create: create objects
+            - _handle_delete: delete objects
+            - _handle_move: move objects
+            - _handle_inspect: inspect positions
+            - _handle_robot: movement, loading, unloading, programming
+        
+        Legacy standalone commands (for backward compatibility):
+            - help, version, quit, pause, resume, terrain, list, inspect, reset, demo
+        """
         if not cmd_line:
             return ""
         
@@ -792,195 +1537,35 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         if not parts:
             return ""
         
-        # Expand aliases
         parts = expand_aliases(parts)
         first = parts[0]
         
-        # System commands: system <subcommand>
-        if first == 'system':
-            if len(parts) < 2:
-                return 'Usage: system <help|version|quit|pause|resume|optimize>'
-            sub = parts[1]
-            
-            if sub == 'quit':
-                raise urwid.ExitMainLoop()
-            elif sub == 'help':
-                # Recursively call with help
-                return process_command('help')
-            elif sub == 'version':
-                return f'KaivosAI version {VERSION}'
-            elif sub == 'pause':
-                clock.pause()
-                return 'Clock paused'
-            elif sub == 'resume':
-                clock.start()
-                return 'Clock resumed'
-            elif sub == 'optimize':
-                # Optimize object IDs to be sequential 1,2,3,4...
-                # Filter only objects that should have IDs (exclude Rocks)
-                from .models import Robot, Mine, Storage, Base
-                all_objects = [o for o in game_map.cells.values() 
-                              if isinstance(o, (Robot, Mine, Storage, Base))]
-                objects = sorted(all_objects, key=lambda o: o.id)
-                old_ids = [o.id for o in objects]
-                count = 0
-                
-                # First pass: change IDs in memory
-                for new_id, obj in enumerate(objects, start=1):
-                    if obj.id != new_id:
-                        obj.id = new_id
-                        count += 1
-                
-                # Second pass: update database (delete all and re-insert)
-                if count > 0 and conn:
-                    from .db import persist_object
-                    cursor = conn.cursor()
-                    # Delete all game objects from database and reset autoincrement
-                    cursor.execute("DELETE FROM game_objects")
-                    cursor.execute("DELETE FROM sqlite_sequence WHERE name='game_objects'")
-                    conn.commit()
-                    
-                    # Re-insert only objects with IDs (not Rocks)
-                    for obj in game_map.cells.values():
-                        if isinstance(obj, (Robot, Mine, Storage, Base)):
-                            persist_object(conn, obj)
-                    
-                    game_seconds = clock.seconds if clock else 0
-                    log_event(conn, game_seconds, 'system', 
-                             f'Optimized {count} object IDs: {old_ids} -> [1..{len(objects)}]', None, None)
-                    return f'Optimized {count} object IDs to sequential order (1,2,3...). Total objects with IDs: {len(objects)}'
-                else:
-                    return f'Object IDs are already optimized (1..{len(objects)})'
-            else:
-                return f"Unknown system command: {sub}"
+        # Dispatcher mapping: command -> handler function
+        handlers = {
+            'system': _handle_system,
+            'map': _handle_map,
+            'create': _handle_create,
+            'delete': _handle_delete,
+            'move': _handle_move,
+            'inspect': _handle_inspect,
+            'robot': _handle_robot,
+            'bot': _handle_robot,
+            'r': _handle_robot,
+        }
         
-        # Map commands: map <subcommand>
-        if first == 'map':
-            if len(parts) < 2:
-                # Just "map" shows the map
-                return 'See Map panel'
-            sub = parts[1]
-            
-            if sub == 'show':
-                return 'See Map panel'
-            elif sub == 'list':
-                return 'See Objects panel'
-            elif sub == 'terrain':
-                # map terrain [density] [size]
-                density = 0.05
-                cluster_size = 3
-                if len(parts) >= 3:
-                    try:
-                        density = float(parts[2])
-                        if not 0.0 <= density <= 1.0:
-                            return 'Density must be between 0.0 and 1.0'
-                    except ValueError:
-                        return 'Density must be a number'
-                if len(parts) >= 4:
-                    try:
-                        cluster_size = int(parts[3])
-                        if cluster_size < 1:
-                            return 'Cluster size must be at least 1'
-                    except ValueError:
-                        return 'Cluster size must be a number'
-                try:
-                    border, terrain = game_map.generate_full_terrain(density, cluster_size)
-                    return f'Terrain generated: {border} border rocks, {terrain} interior rocks'
-                except Exception as e:
-                    return f'Error: {e}'
-            elif sub == 'demo':
-                # Add demo objects
-                import os
-                import random
-                import time
-                seed_value = int(time.time() * 1000000) + int.from_bytes(os.urandom(4), 'big')
-                random.seed(seed_value)
-                
-                free_positions = []
-                for x in range(1, 31):
-                    for y in range(1, 31):
-                        if game_map.get((x, y)) is None:
-                            free_positions.append((x, y))
-                
-                if len(free_positions) < 4:
-                    return 'Not enough free space for demo objects!'
-                
-                random.shuffle(free_positions)
-                positions = free_positions[:4]
-                
-                demo_objects = [
-                    ('mine', None, 'Iron Mine', positions[0], {'durability': 25}),
-                    ('storage', None, 'Storage A', positions[1], {'capacity': 50}),
-                    ('base', None, 'Base', positions[2], {}),
-                    ('robot', None, 'Bot', positions[3], {'capacity': 5}),
-                ]
-                added = 0
-                for typ, oid, name, pos, kwargs in demo_objects:
-                    try:
-                        obj = create_object(typ, oid, name=name, pos=pos, **kwargs)
-                        game_map.remove_object(pos)
-                        game_map.add_object(obj, pos)
-                        added += 1
-                    except Exception:
-                        pass
-                return f'Added {added} demo objects at random positions'
-            elif sub == 'reset':
-                # Clear everything
-                for pos in list(game_map.cells.keys()):
-                    game_map.remove_object(pos)
-                if game_map.conn:
-                    try:
-                        game_map.conn.execute("DELETE FROM sqlite_sequence WHERE name='game_objects'")
-                        game_map.conn.commit()
-                    except Exception:
-                        pass
-                clock.reset()
-                return 'Everything reset: map cleared, clock reset'
-            else:
-                return f"Unknown map command: {sub}. Try: show, list, terrain, demo, reset"
+        if first in handlers:
+            return handlers[first](parts)
         
-        # Legacy standalone commands for backwards compatibility
+        # Legacy standalone commands
         if first == 'quit':
             raise urwid.ExitMainLoop()
         
-        # Help
         if first == 'help':
-            return ("Commands (with shortcuts):\n"
-                    "ROBOTS:\n"
-                    "• robot ID goto X Y [d N] (r ID g X Y [d N]) - move robot to position\n"
-                    "• robot ID goto OBJ_ID [d N] (r ID g OBJ_ID [d N]) - move robot near object\n"
-                    "• robot ID load [amount] (r ID l) - load from adjacent object\n"
-                    "• robot ID unload [amount] (r ID u) - unload to adjacent object\n"
-                    "• robot ID program (r ID p) - edit robot commands (F2=save, ESC=cancel)\n"
-                    "\n"
-                    "OBJECTS:\n"
-                    "• create TYPE X Y (c TYPE X Y) - create object at position\n"
-                    "• delete ID (d ID) - remove object by ID\n"
-                    "• delete X Y (d X Y) - remove object at position\n"
-                    "• inspect X Y - inspect position\n"
-                    "\n"
-                    "MAP:\n"
-                    "• map show (map/m) - show map\n"
-                    "• map list (map ls) - show all objects\n"
-                    "• map terrain [density] [size] (map t) - generate terrain\n"
-                    "• map demo (map demo) - add demo objects\n"
-                    "• map reset (map reset) - clear everything\n"
-                    "\n"
-                    "SYSTEM:\n"
-                    "• system pause - pause clock\n"
-                    "• system resume - resume clock\n"
-                    "• system optimize - optimize object IDs\n"
-                    "• system version - show version\n"
-                    "• system help - this help\n"
-                    "• system quit - exit\n"
-                    "\n"
-                    "Press TAB for command completion")
+            return _build_help_text()
         
-        # Version (legacy standalone)
         if first == 'version':
             return f'KaivosAI version {VERSION}'
         
-        # Pause/Resume (legacy standalone)
         if first == 'pause':
             clock.pause()
             return 'Clock paused'
@@ -989,325 +1574,16 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             clock.start()
             return 'Clock resumed'
         
-        # Create object: create TYPE X Y
-        if first == 'create':
-            if len(parts) < 4:
-                return 'Usage: create TYPE X Y (e.g. create robot 5 7)'
-            
-            typ = parts[1]
-            try:
-                x = int(parts[2])
-                y = int(parts[3])
-            except (ValueError, IndexError):
-                return 'Coordinates must be numbers'
-            
-            try:
-                obj = create_object(typ, None, pos=(x, y))
-                game_map.add_object(obj, (x, y))
-                return f'Created {typ} at ({x},{y})'
-            except Exception as e:
-                return f'Error: {e}'
-        
-        # Delete object: delete ID or delete X Y
-        if first == 'delete':
-            # Patterns: "remove at 5 7", "delete 3", "remove id 3"
-            if len(parts) < 2:
-                return 'Usage: remove at X Y  or  remove ID'
-            
-            if parts[1] in ('at', 'pos', 'position'):
-                if len(parts) < 4:
-                    return 'Usage: remove at X Y'
-                try:
-                    x = int(parts[2])
-                    y = int(parts[3])
-                except ValueError:
-                    return 'Coordinates must be numbers'
-                obj = game_map.remove_object((x, y))
-                return f'Removed {type(obj).__name__ if obj else "nothing"}'
-            
-            if parts[1] in ('id', 'object', '#'):
-                if len(parts) < 3:
-                    return 'Usage: remove id NUMBER'
-                try:
-                    oid = int(parts[2])
-                except ValueError:
-                    return 'ID must be a number'
-                obj = game_map.remove_object(oid)
-                return f'Removed {type(obj).__name__ if obj else "nothing"}'
-            
-            # Try direct: "remove 3" or "remove 5 7"
-            try:
-                val = int(parts[1])
-                if len(parts) == 2:
-                    # Single number - assume ID
-                    obj = game_map.remove_object(val)
-                    return f'Removed {type(obj).__name__ if obj else "nothing"}'
-                else:
-                    # Two numbers - assume X Y
-                    y = int(parts[2])
-                    obj = game_map.remove_object((val, y))
-                    return f'Removed {type(obj).__name__ if obj else "nothing"}'
-            except ValueError:
-                return 'Invalid coordinates or ID'
-        
-        # Move object
-        if first == 'move':
-            # Patterns: "move from 1 2 to 3 4", "move 1 2 to 3 4"
-            if 'from' in parts:
-                from_idx = parts.index('from')
-                to_idx = parts.index('to') if 'to' in parts else -1
-                if to_idx < 0 or to_idx - from_idx != 3:
-                    return 'Usage: move from X Y to X Y'
-                try:
-                    x1 = int(parts[from_idx + 1])
-                    y1 = int(parts[from_idx + 2])
-                    x2 = int(parts[to_idx + 1])
-                    y2 = int(parts[to_idx + 2])
-                except (ValueError, IndexError):
-                    return 'Coordinates must be numbers'
-            elif 'to' in parts:
-                to_idx = parts.index('to')
-                if to_idx != 3:
-                    return 'Usage: move X Y to X Y'
-                try:
-                    x1 = int(parts[1])
-                    y1 = int(parts[2])
-                    x2 = int(parts[to_idx + 1])
-                    y2 = int(parts[to_idx + 2])
-                except (ValueError, IndexError):
-                    return 'Coordinates must be numbers'
-            else:
-                if len(parts) < 5:
-                    return 'Usage: move X Y to X Y'
-                try:
-                    x1 = int(parts[1])
-                    y1 = int(parts[2])
-                    x2 = int(parts[3])
-                    y2 = int(parts[4])
-                except ValueError:
-                    return 'Coordinates must be numbers'
-            
-            try:
-                game_map.move_object((x1, y1), (x2, y2))
-                return f'Moved from ({x1},{y1}) to ({x2},{y2})'
-            except Exception as e:
-                return f'Error: {e}'
-        
-        # Robot movement
-        if first in ('robot', 'bot', 'r'):
-            # Patterns: "robot 3 go to 5 7", "bot 3 goto 5 7", "r 3 g 5", "robot 3 load", "robot 3 unload"
-            if len(parts) < 2:
-                return 'Usage: robot ID <command>'
-            try:
-                rid = int(parts[1])
-            except ValueError:
-                return 'Robot ID must be a number'
-            
-            # Find the robot
-            robot = None
-            for obj in game_map.cells.values():
-                if isinstance(obj, Robot) and getattr(obj, 'id', None) == rid:
-                    robot = obj
-                    break
-            
-            if not robot:
-                return f'Robot {rid} not found'
-            
-            # Load command
-            if len(parts) >= 3 and parts[2] in ('load', 'take', 'pickup', 'get'):
-                adjacent = game_map.get_adjacent_objects(robot.pos)
-                # Filter to valid sources: Mine, Storage, Base, Robot
-                valid = [o for o in adjacent if isinstance(o, (Mine, Storage, Base, Robot)) and o != robot]
-                if len(valid) == 0:
-                    return 'No adjacent objects to load from (need Mine, Storage, Base, or Robot nearby)'
-                if len(valid) > 1:
-                    return f'Multiple adjacent objects ({len(valid)}). Move robot to have only one adjacent object.'
-                
-                source = valid[0]
-                amount = None
-                if len(parts) >= 4:
-                    try:
-                        amount = int(parts[3])
-                    except ValueError:
-                        pass
-                
-                # Start loading process (1 material/second)
-                robot.start_loading(source, amount)
-                
-                # Persist robot
-                if conn:
-                    from .db import persist_object
-                    persist_object(conn, robot)
-                    # Log start event
-                    game_seconds = clock.seconds if clock else 0
-                    source_name = getattr(source, 'name', type(source).__name__)
-                    log_event(conn, game_seconds, 'robot_loading', 
-                             f'Robot {rid} started loading from {source_name} at ({robot.pos[0]},{robot.pos[1]})', robot, robot.pos)
-                
-                source_name = getattr(source, 'name', type(source).__name__)
-                transfer_amount = amount if amount is not None else (robot.capacity - robot.inventory)
-                return f'Robot {rid} started loading {transfer_amount} material from {source_name} (1/s). Inventory: {robot.inventory}/{robot.capacity}'
-            
-            # Program/edit commands
-            if len(parts) >= 3 and parts[2] in ('program', 'prg', 'prog'):
-                show_command_editor(robot)
-                return f'Editing commands for {robot.name}'
-            
-            # Unload command
-            if len(parts) >= 3 and parts[2] in ('unload', 'dump', 'drop', 'put', 'store'):
-                adjacent = game_map.get_adjacent_objects(robot.pos)
-                # Filter to valid targets: Storage, Base, Robot
-                valid = [o for o in adjacent if isinstance(o, (Storage, Base, Robot)) and o != robot]
-                if len(valid) == 0:
-                    return 'No adjacent objects to unload to (need Storage, Base, or Robot nearby)'
-                if len(valid) > 1:
-                    return f'Multiple adjacent objects ({len(valid)}). Move robot to have only one adjacent object.'
-                
-                target = valid[0]
-                amount = None
-                if len(parts) >= 4:
-                    try:
-                        amount = int(parts[3])
-                    except ValueError:
-                        pass
-                
-                # Start unloading process (1 material/second)
-                robot.start_unloading(target, amount)
-                
-                # Persist robot
-                if conn:
-                    from .db import persist_object
-                    persist_object(conn, robot)
-                    # Log start event
-                    game_seconds = clock.seconds if clock else 0
-                    target_name = getattr(target, 'name', type(target).__name__)
-                    log_event(conn, game_seconds, 'robot_unloading', 
-                             f'Robot {rid} started unloading to {target_name} at ({robot.pos[0]},{robot.pos[1]})', robot, robot.pos)
-                
-                target_name = getattr(target, 'name', type(target).__name__)
-                transfer_amount = amount if amount is not None else robot.inventory
-                return f'Robot {rid} started unloading {transfer_amount} material to {target_name} (1/s). Inventory: {robot.inventory}/{robot.capacity}'
-            
-            # Skip "go", "goto", "move" for movement commands
-            if len(parts) < 4:
-                return 'Usage: robot ID <go to X Y [distance N] | go to OBJ_ID [distance N] | load [amount] | unload [amount]>'
-            
-            offset = 2
-            if parts[2] in ('go', 'goto', 'g', 'move', 'm', 'walk'):
-                offset = 3
-            if offset < len(parts) and parts[offset] == 'to':
-                offset += 1
-            
-            # Parse optional distance parameter (stop N cells away)
-            # Look for "distance N" or "d N" anywhere after the target
-            stop_distance = 0
-            distance_keyword_idx = -1
-            
-            for i in range(offset, len(parts)):
-                if parts[i] in ('distance', 'dist', 'd'):
-                    distance_keyword_idx = i
-                    break
-            
-            if distance_keyword_idx >= 0:
-                # Found distance keyword, next param should be the number
-                if distance_keyword_idx + 1 < len(parts):
-                    try:
-                        stop_distance = int(parts[distance_keyword_idx + 1])
-                    except ValueError:
-                        return 'Distance must be a number'
-                else:
-                    return 'Distance keyword requires a number'
-            
-            # Determine if target is object ID (1 param) or coordinates (2 params)
-            # Count parameters before distance keyword
-            param_count = (distance_keyword_idx - offset) if distance_keyword_idx >= 0 else (len(parts) - offset)
-            
-            if param_count == 1:
-                # Single parameter: object ID
-                try:
-                    target_id = int(parts[offset])
-                except ValueError:
-                    return 'Object ID must be a number'
-                
-                # Find target object
-                target_obj = None
-                for obj in game_map.cells.values():
-                    if getattr(obj, 'id', None) == target_id:
-                        target_obj = obj
-                        break
-                
-                if not target_obj:
-                    return f'Object {target_id} not found'
-                
-                # Cannot target robots
-                if isinstance(target_obj, Robot):
-                    return 'Cannot target robots. Use coordinates or target Mine/Storage/Base.'
-                
-                # Get object position
-                x, y = target_obj.pos
-                
-                # Default: stop 1 cell away (adjacent) if no distance specified
-                if stop_distance == 0:
-                    stop_distance = 1
-                    
-            elif param_count >= 2:
-                # Two parameters: X Y coordinates
-                try:
-                    x = int(parts[offset])
-                    y = int(parts[offset + 1])
-                except (ValueError, IndexError):
-                    return 'Coordinates must be numbers'
-            else:
-                return 'Usage: robot ID go to X Y [distance N] or robot ID go to OBJ_ID [distance N]'
-            
-            try:
-                started = game_map.command_move_robot(rid, (x, y), stop_distance)
-                if started:
-                    # Log movement start event
-                    if conn:
-                        game_seconds = clock.seconds if clock else 0
-                        name = getattr(robot, 'name', f'Robot {rid}')
-                        dist_msg = f' (stop {stop_distance} cells away)' if stop_distance > 0 else ''
-                        log_event(conn, game_seconds, 'robot_moving', 
-                                 f'{name} started moving to ({x},{y}){dist_msg} from ({robot.pos[0]},{robot.pos[1]})', robot, robot.pos)
-                    dist_text = f' (stopping {stop_distance} cells away)' if stop_distance > 0 else ''
-                    return f'Robot {rid} moving to ({x},{y}){dist_text}'
-                else:
-                    return 'No path available or already at target'
-            except ValueError as e:
-                return f'Error: {e}'
-            except Exception as e:
-                return f'Error: {e}'
-        
-        # Legacy standalone commands
-        # Terrain (legacy - use "map terrain" instead)
+        # Legacy command redirects
         if first == 'terrain':
             return 'Use "map terrain [density] [size]" or "map t" instead'
         
-        # List objects (legacy - use "map list" instead)
         if first == 'list':
             return 'See Objects panel (or use "map list")'
         
-        # Inspect position: inspect X Y
-        if first == 'inspect':
-            if len(parts) < 3:
-                return 'Usage: inspect X Y'
-            try:
-                x = int(parts[1])
-                y = int(parts[2])
-            except (ValueError, IndexError):
-                return 'Coordinates must be numbers'
-            obj = game_map.get((x, y))
-            if obj:
-                name = getattr(obj, 'name', type(obj).__name__)
-                return f'{name} at ({x},{y})'
-            return f'Nothing at ({x},{y})'
-        
-        # Reset (legacy - use "map reset" instead)
         if first == 'reset':
             return 'Use "map reset" instead'
         
-        # Demo (legacy - use "map demo" instead)
         if first == 'demo':
             return 'Use "map demo" instead'
         
@@ -1335,7 +1611,22 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
 
 
 def run_demo():
-    """Start the demo with Urwid TUI."""
+    """Start the game with Urwid TUI and initialize demo world if needed.
+    
+    Creates:
+        - 30x30 map with database persistence
+        - GameClock background thread
+        - Terrain generation (border + random rocks) if database empty
+        - Demo objects (robots, mines, storage, bases) in random positions
+        
+    Note:
+        - Entry point called from kaivosai.py
+        - Database: databases/game.db (auto-created)
+        - Only generates terrain/objects if database empty
+        - Uses strong randomization: time.time() * 1e6 + os.urandom(4)
+        - Rock density: 0.03 (3%), cluster size: 4
+        - Launches Urwid TUI with run_urwid_tui()
+    """
     conn = get_game_conn()
     init_game_db(conn)
     game_map = Map(width=30, height=30, conn=conn)

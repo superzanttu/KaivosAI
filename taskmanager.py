@@ -1,4 +1,15 @@
 #!/usr/bin/env python3
+"""Simple SQLite-backed task manager CLI.
+
+Features:
+    - Commands: add, list, done, archive, help, exit
+    - Subcommand args powered by argparse + REPL mode with shlex parsing
+    - Stores tasks in `databases/tasks.db` with timestamps and archive support
+
+Usage:
+    - One-shot: `python -m taskmanager add "Buy milk"`
+    - REPL: `python -m taskmanager` then type commands
+"""
 import argparse
 import shlex
 import sqlite3
@@ -32,12 +43,28 @@ COMMAND_DESCRIPTIONS = {
 
 
 def get_conn(path: Path):
+    """Open SQLite connection with Row factory.
+
+    Args:
+        path: Path to SQLite database file
+
+    Returns:
+        Connection with `sqlite3.Row` row_factory.
+    """
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def init_db(conn: sqlite3.Connection):
+    """Initialize tasks table and add missing columns for legacy DBs.
+
+    Args:
+        conn: SQLite connection
+
+    Note:
+        Adds `archived` and `archived_at` columns if missing.
+    """
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS tasks (
@@ -61,6 +88,12 @@ def init_db(conn: sqlite3.Connection):
 
 
 def add_task(conn: sqlite3.Connection, description: str):
+    """Insert a new task with current UTC creation timestamp.
+
+    Args:
+        conn: SQLite connection
+        description: Task description text
+    """
     created_at = datetime.now(timezone.utc).isoformat()
     cur = conn.execute(
         "INSERT INTO tasks (description, completed, created_at) VALUES (?, 0, ?)",
@@ -72,6 +105,12 @@ def add_task(conn: sqlite3.Connection, description: str):
 
 
 def list_tasks(conn: sqlite3.Connection, archived: bool = False):
+    """Print tasks to stdout filtered by archive status.
+
+    Args:
+        conn: SQLite connection
+        archived: Whether to show archived tasks (default: False)
+    """
     if archived:
         cur = conn.execute("SELECT id, description, completed, archived FROM tasks WHERE archived = 1 ORDER BY id")
     else:
@@ -86,6 +125,12 @@ def list_tasks(conn: sqlite3.Connection, archived: bool = False):
 
 
 def complete_task(conn: sqlite3.Connection, task_id: int):
+    """Mark given task as completed and set `completed_at` timestamp.
+
+    Args:
+        conn: SQLite connection
+        task_id: Task id to mark complete
+    """
     cur = conn.execute("SELECT completed FROM tasks WHERE id = ?", (task_id,))
     row = cur.fetchone()
     if not row:
@@ -104,6 +149,12 @@ def complete_task(conn: sqlite3.Connection, task_id: int):
 
 
 def archive_task(conn: sqlite3.Connection, task_id: int):
+    """Soft-delete task by setting `archived` and `archived_at` fields.
+
+    Args:
+        conn: SQLite connection
+        task_id: Task id to archive
+    """
     cur = conn.execute("SELECT archived FROM tasks WHERE id = ?", (task_id,))
     row = cur.fetchone()
     if not row:
@@ -119,6 +170,14 @@ def archive_task(conn: sqlite3.Connection, task_id: int):
 
 
 def parse_args(argv=None):
+    """Parse CLI arguments for one-shot subcommand execution.
+
+    Args:
+        argv: Optional list of arguments (default: sys.argv)
+
+    Returns:
+        Namespace with parsed arguments.
+    """
     parser = argparse.ArgumentParser(description="Simple task manager CLI (SQLite)")
     sub = parser.add_subparsers(dest="cmd")
 
@@ -138,6 +197,14 @@ def parse_args(argv=None):
 
 
 def main(argv=None):
+    """Entrypoint for CLI execution and REPL fallback.
+
+    Args:
+        argv: Optional list of args for one-shot mode
+
+    Note:
+        When no subcommand provided, starts interactive REPL.
+    """
     args = parse_args(argv)
     conn = get_conn(DB_FILE)
     try:
@@ -169,7 +236,11 @@ def main(argv=None):
 
 
 def repl(conn: sqlite3.Connection):
-    """Simple interactive prompt. Commands: add, list, done, help, exit"""
+    """Interactive prompt to manage tasks.
+
+    Commands:
+        add, list, done, archive, help, exit
+    """
     print("Task Manager — interactive mode. Type 'help' for commands.")
     while True:
         try:

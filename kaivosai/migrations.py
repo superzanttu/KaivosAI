@@ -10,6 +10,17 @@ from typing import Tuple
 
 
 def backup_db(path: Path) -> Path:
+    """Create a backup of the database file next to the original.
+
+    Args:
+        path: Path to the original database file (e.g., databases/game.db)
+
+    Returns:
+        Path to the created backup file (e.g., databases/game.db.bak)
+
+    Note:
+        Uses `copy2` to preserve metadata. Ensures parent directory exists.
+    """
     # Ensure parent directory exists for backup
     path.parent.mkdir(parents=True, exist_ok=True)
     bak = path.with_suffix(path.suffix + '.bak')
