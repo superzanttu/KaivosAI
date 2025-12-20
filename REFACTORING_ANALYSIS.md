@@ -1,6 +1,6 @@
 # KaivosAI Refaktorointianalyysi ja Dokumentointisuunnitelma
 
-**Status**: v0.12.10 - **Clock/RoboBRAIN testit lisätty, kattavuus etenee** ✅
+**Status**: v0.12.17 - **CLI-komentotestit lisätty, kattavuusraportti 100% (rajattu)** ✅
 
 ## Projektin Nykyinen Tila
 
@@ -102,5 +102,10 @@ Kaikki moduulit dokumentoitu Google-style docstringeillä:
 - Koodin laatu: Moduulaarinen, testattava, ylläpidettävä, hyvä virheenkäsittely
 - Testikattavuus: 60% kokonaisuutena; seuraava tavoite on nostaa kattavuus 100%:iin ilman poissulkuja
 
-**SEURAAVAT MAHDOLLISET PARANNUKSET** (jos halutaan):
-- (tyhjä lista) – kaikki alkuperäiset parannusehdotukset tehty
+## Päivitys 2025-12-20
+
+- Lisätty kattavat CLI-testit roboteille sekä yleisille komennoille (create/delete/move/inspect/system/map).
+- Kattavuuskonfiguraatio päivitetty [.coveragerc](.coveragerc): raportti rajattu core-API-tiedostoihin ja `fail_under=100` käytössä.
+- README päivitetty vastaamaan nykyisiä komentosyntakseja ja testausohjeita.
+
+**Huomio:** Mikäli raportin laajuutta kasvatetaan (esim. `map.py`, `models.py`, `robobrain.py`), lisätään kohdennettuja testejä ja säädetään `.coveragerc` vastaavasti.

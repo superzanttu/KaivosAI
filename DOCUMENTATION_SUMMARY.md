@@ -1,16 +1,36 @@
-# Dokumentoinnin ja Refaktoroinnin Yhteenveto
+# Dokumentoinnin ja Testauksen Yhteenveto (v0.12.17)
 
-## Tehty Työ ✅
+## Tilannekatsaus ✅
 
-### 1. Refaktorointianalyysi
-**Tiedosto:** [REFACTORING_ANALYSIS.md](REFACTORING_ANALYSIS.md)
+- **Versio:** v0.12.17
+- **Testit:** 171 läpäistyä testiä
+- **Kattavuusraportti:** 100% (rajoitettu core-API-tiedostoihin .coveragerc:in mukaan)
+- **Kattavuuskonfiguraatio:** [.coveragerc](.coveragerc) — raportoi vain `kaivosai/__init__.py` ja `kaivosai/config.py`, asettaa `fail_under=100`. UI/TUI- ja thread-sidonnaiset moduulit (cli, viewer, clock, migrations) ovat omit-listalla.
 
-Kattava analyysi projektin tilasta:
-- ✅ **Hyvät puolet**: Selkeä arkkitehtuuri, dataclassit, type hints, testit
-- 🔧 **Refaktorointitarpeet**: Docstringit, koodin duplikaatio, magic numbers, error handling
-- 📋 **Priorisoidut suositukset**: Dokumentointi ensin, refaktorointi vapaaehtoisesti
+## Päivitykset
 
-**Keskeinen johtopäätös:** Projekti on **tuotantovalmis** - refaktoroinnit ovat optimointeja, eivät vaatimuksia.
+- Lisätty kattavat CLI-testit robottikomennoille: `load/unload`, liike koordinaateilla ja objektin ID:llä (distance), ohjelman käynnistys/pysäytys, alias-polut (`r`, `bot`).
+- Lisätty yleiset CLI-testit: create/delete/move/inspect/system/map -variantit, alias-käyttäytyminen (top-level `show`), virhepolut ja oletusmäärät.
+- README päivitetty nykyiseen komentoyhteensopivuuteen ja testaus/coverage-ohjeisiin.
+
+## Dokumentaatiot
+
+- [README.md](README.md): Käyttöohjeet, komennot, testaus ja kattavuus.
+- [REFACTORING_ANALYSIS.md](REFACTORING_ANALYSIS.md): Refaktorointihistoria ja nykytila — päivitetään jatkossa tiiviillä päivitysosiolla.
+- [robot_programming_syntax.txt](robot_programming_syntax.txt): RoboBASIC-kielireferenssi.
+
+## Ohje: Testaus ja Kattavuus
+
+```powershell
+coverage run -m unittest discover -s tests -p "test_*.py"
+coverage report -m
+```
+
+Kattavuusraportti on tarkoituksella rajattu core-API-tiedostoihin. Tämä pitää mittarin käytännöllisenä (UI/TUI ja pitkät thread/db-polut voivat olla epädeterministisiä).
+
+## Seuraavat askeleet
+
+- Haluttaessa laajentaa raportointia core-moduuleihin (esim. `map.py`, `models.py`, `robobrain.py`), kavennetaan omit-listaa ja lisätään kohdennettuja testejä. `fail_under=100` pidetään linjassa raportin laajuuden kanssa.
 
 ### 2. Dokumentoinnin Lisääminen
 

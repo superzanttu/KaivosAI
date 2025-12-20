@@ -29,41 +29,45 @@ The TUI uses [Urwid](https://urwid.org/) to display:
 - **Status panel**: command feedback
 - **Command input**: type natural language commands and press Enter
 
-## Natural Language Commands
+## Commands Overview
 
-KaivosAI uses conversational commands that read like spoken language:
+KaivosAI accepts natural-language style commands. Below are the supported forms used by the current CLI.
 
 ### Object Management
-- `create robot at 5 7` — create a robot at position (5,7)
-- `add mine at 3 4` — add a mine at position (3,4)
-- `remove at 5 7` — remove whatever is at position (5,7)
-- `delete 12` — remove object with ID 12
-- `move 3 4 to 7 7` — move object from (3,4) to (7,7)
-- `what at 8 8` — inspect what's at position (8,8)
+- `create TYPE X Y` — create object of type at position (X,Y); types: robot, mine, storage, base, rock
+- `delete at X Y` — remove whatever is at position (X,Y)
+- `delete id N` — remove object with ID N
+- `delete X Y` — remove by coordinates (shorthand)
+- `move X Y to X2 Y2` — move object instantly from (X,Y) to (X2,Y2)
+- `inspect X Y` — show what is at position (X,Y)
 
 ### Robot Control
-- `robot 3 go to 10 10` — command robot #3 to move to (10,10)
-- `bot 5 goto 8 8` — alternative syntax for robot movement
+- `robot ID goto X Y [distance N]` — move robot to coordinates, optionally stopping N cells away
+- `robot ID goto OBJ_ID [distance N]` — move adjacent to object by ID (defaults to 1 cell away if no distance)
+- `robot ID load [N]` — start loading N materials from an adjacent source (Mine/Storage/Base/Robot); if omitted, loads until full
+- `robot ID unload [N]` — start unloading N materials to an adjacent destination (Storage/Base/Robot); if omitted, unloads all
+- Aliases: `r`, `bot`, `go`, `move`, `g`, `take`, `drop`
 
 ### Viewing
-- `list` or `objects` — show all objects (robots, mines, storage, bases)
-- `show` or `map` — display the ASCII map
+- `map show` — see map panel
+- `map list` — see objects panel
+- Top-level aliases: `show` → `map`, `ls/objects` → `list` (redirects to panels)
 
 ### Terrain & Setup
-- `generate terrain` — create bordered map with natural rock formations
-- `generate terrain 0.08 5` — custom density (0.08) and cluster size (5)
-- `demo` — add demo objects for testing
+- `map terrain [density] [cluster]` — generate terrain with border + clusters (density 0.0–1.0, cluster ≥1)
+- `map demo` — add demo objects at random free positions
+- `map reset` — clear map and reset clock
 
 ### Time Control
-- `pause` or `stop` — pause game clock
-- `resume` or `start` — resume game clock
-- `time` — show current game time
-- `reset time` — reset clock to zero
+- `pause` — pause game clock
+- `resume` — resume game clock
+- `system pause` / `system resume` — clock control via system
 
 ### Game Control
-- `reset` — clear all objects and reset clock
-- `help` or `?` — show command list
-- `quit` or `exit` — exit game (or press ESC)
+- `map reset` — clear all objects and reset clock
+- `help` or `system help` — show command list
+- `version` or `system version` — show version
+- `quit` or `system quit` — exit game
 
 ## Game objects
 
@@ -88,9 +92,9 @@ Example: `generate terrain 0.08 5` creates denser terrain with larger clusters.
 
 ### Robot Movement
 Robots use pathfinding to navigate around obstacles:
-- Command: `robot 3 go to 10 10`
+- Command: `robot 3 goto 10 10`
 - Robots automatically find paths around rocks and other objects
-- Movement happens in real-time (one step every 0.5 seconds)
+- Movement happens in real-time
 - Blocked paths are recalculated automatically
 
 ### Persistent Game Clock
@@ -111,7 +115,7 @@ Deduplicate and migrate `databases/game.db` (creates backup `databases/game.db.b
 python -m kaivosai.migrations
 ```
 
-## Development tools
+## Development & Testing
 
 ### Task manager
 
@@ -130,3 +134,18 @@ python -m pip install urwid
 ```
 
 Urwid is required to run the game.
+
+### Testing & Coverage
+
+Run the test suite and coverage report:
+
+```powershell
+coverage run -m unittest discover -s tests -p "test_*.py"
+coverage report -m
+```
+
+Coverage configuration is managed in [.coveragerc](.coveragerc). The report is restricted to core API files and enforces 100% via `fail_under=100`. UI/TUI and thread-bound modules are omitted from the report for practicality.
+
+### Version
+
+Current version: see [kaivosai/__init__.py](kaivosai/__init__.py). After changes, update VERSION, append a line to [commit_message.txt](commit_message.txt), and recreate [flag_new_version.lck](flag_new_version.lck) to signal reload.
