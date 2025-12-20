@@ -255,6 +255,115 @@ class Map:
                         log_event(self.conn, game_seconds, 'robot_blocked', 
                                  f'{name} blocked at ({pos[0]},{pos[1]}), cannot reach target', obj, pos)
     
+    def tick_transfer(self, game_seconds: int):
+        """Handle gradual material transfer for robots (1 material/second).
+        
+        Args:
+            game_seconds: Current game time in seconds
+        """
+        from .models import Robot, Mine, Base, Storage
+        from .db import persist_object, log_event
+        
+        for pos, obj in list(self.cells.items()):
+            if not isinstance(obj, Robot):
+                continue
+                
+            # Initialize fields if missing
+            if not hasattr(obj, '_loading_from'):
+                obj._loading_from = None
+            if not hasattr(obj, '_loading_amount'):
+                obj._loading_amount = None
+            if not hasattr(obj, '_unloading_to'):
+                obj._unloading_to = None
+            if not hasattr(obj, '_unloading_amount'):
+                obj._unloading_amount = None
+            if not hasattr(obj, '_last_transfer_time'):
+                obj._last_transfer_time = 0.0
+            
+            # Handle loading
+            if obj._loading_from is not None and obj._loading_amount is not None:
+                source = obj._loading_from
+                
+                # Check if enough time passed (1 second)
+                if game_seconds >= obj._last_transfer_time + 1:
+                    # Transfer 1 material
+                    free = obj.capacity - obj.inventory
+                    if free > 0:
+                        # Withdraw 1 material from source
+                        if hasattr(source, 'withdraw'):
+                            taken = source.withdraw(1)
+                        elif isinstance(source, Robot):
+                            taken = min(1, source.inventory)
+                            source.inventory -= taken
+                        else:
+                            taken = 0
+                        
+                        if taken > 0:
+                            obj.inventory += taken
+                            obj._loading_amount -= taken
+                            obj._last_transfer_time = game_seconds
+                            
+                            # Persist both objects
+                            if self.conn:
+                                persist_object(self.conn, obj)
+                                persist_object(self.conn, source)
+                    
+                    # Check if done loading
+                    if obj._loading_amount <= 0 or obj.inventory >= obj.capacity or (hasattr(source, 'stored') and source.stored == 0) or (isinstance(source, Robot) and source.inventory == 0):
+                        # Log completion
+                        if self.conn:
+                            source_name = getattr(source, 'name', type(source).__name__)
+                            log_event(self.conn, game_seconds, 'robot_loaded', 
+                                     f'Robot {obj.id} finished loading from {source_name} at ({pos[0]},{pos[1]})', obj, pos)
+                            if obj.inventory >= obj.capacity:
+                                log_event(self.conn, game_seconds, 'robot_full', 
+                                         f'Robot {obj.id} inventory full ({obj.inventory}/{obj.capacity})', obj, pos)
+                        obj._loading_from = None
+                        obj._loading_amount = None
+            
+            # Handle unloading
+            elif obj._unloading_to is not None and obj._unloading_amount is not None:
+                target = obj._unloading_to
+                
+                # Check if enough time passed (1 second)
+                if game_seconds >= obj._last_transfer_time + 1:
+                    # Transfer 1 material
+                    if obj.inventory > 0:
+                        # Deposit 1 material to target
+                        if hasattr(target, 'store'):
+                            stored = target.store(1)
+                        elif hasattr(target, 'deposit'):
+                            stored = target.deposit(1)
+                        elif isinstance(target, Robot):
+                            free = target.capacity - target.inventory
+                            stored = min(1, free)
+                            target.inventory += stored
+                        else:
+                            stored = 0
+                        
+                        if stored > 0:
+                            obj.inventory -= stored
+                            obj._unloading_amount -= stored
+                            obj._last_transfer_time = game_seconds
+                            
+                            # Persist both objects
+                            if self.conn:
+                                persist_object(self.conn, obj)
+                                persist_object(self.conn, target)
+                    
+                    # Check if done unloading
+                    if obj._unloading_amount <= 0 or obj.inventory == 0 or (hasattr(target, 'stored') and hasattr(target, 'capacity') and target.stored >= target.capacity) or (isinstance(target, Robot) and target.inventory >= target.capacity):
+                        # Log completion
+                        if self.conn:
+                            target_name = getattr(target, 'name', type(target).__name__)
+                            log_event(self.conn, game_seconds, 'robot_unloaded', 
+                                     f'Robot {obj.id} finished unloading to {target_name} at ({pos[0]},{pos[1]})', obj, pos)
+                            if obj.inventory == 0:
+                                log_event(self.conn, game_seconds, 'robot_empty', 
+                                         f'Robot {obj.id} inventory empty', obj, pos)
+                        obj._unloading_to = None
+                        obj._unloading_amount = None
+    
     def tick_production(self, game_seconds: int):
         """Handle material production in mines and consumption in bases.
         

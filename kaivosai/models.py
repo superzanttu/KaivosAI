@@ -109,10 +109,60 @@ class Robot:
     capacity: int = 5
     inventory: int = 0
     name: str = "Robot"
+    _loading_from: Optional[object] = None
+    _loading_amount: Optional[int] = None
+    _unloading_to: Optional[object] = None
+    _unloading_amount: Optional[int] = None
+    _last_transfer_time: float = 0.0
 
     def move_to(self, target: Position):
         self.pos = target
 
+    def start_loading(self, source, amount: int = None):
+        """Start loading material from source (1 material/second)."""
+        # Initialize fields if missing
+        if not hasattr(self, '_loading_from'):
+            self._loading_from = None
+        if not hasattr(self, '_loading_amount'):
+            self._loading_amount = None
+        if not hasattr(self, '_unloading_to'):
+            self._unloading_to = None
+        if not hasattr(self, '_unloading_amount'):
+            self._unloading_amount = None
+        if not hasattr(self, '_last_transfer_time'):
+            self._last_transfer_time = 0.0
+            
+        # Cancel any ongoing operations
+        self._unloading_to = None
+        self._unloading_amount = None
+        
+        # Start loading
+        free = self.capacity - self.inventory
+        self._loading_from = source
+        self._loading_amount = amount if amount is not None else free
+        
+    def start_unloading(self, target, amount: int = None):
+        """Start unloading material to target (1 material/second)."""
+        # Initialize fields if missing
+        if not hasattr(self, '_loading_from'):
+            self._loading_from = None
+        if not hasattr(self, '_loading_amount'):
+            self._loading_amount = None
+        if not hasattr(self, '_unloading_to'):
+            self._unloading_to = None
+        if not hasattr(self, '_unloading_amount'):
+            self._unloading_amount = None
+        if not hasattr(self, '_last_transfer_time'):
+            self._last_transfer_time = 0.0
+            
+        # Cancel any ongoing operations
+        self._loading_from = None
+        self._loading_amount = None
+        
+        # Start unloading
+        self._unloading_to = target
+        self._unloading_amount = amount if amount is not None else self.inventory
+    
     def load_from(self, source, amount: int = None) -> int:
         """Load material from source object (Mine, Storage, Base, or Robot)."""
         free = self.capacity - self.inventory

@@ -358,9 +358,23 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                     color = 'robot'
                     bar = '[' + '=' * pct + '.' * (10 - pct) + ']'
                 
+                # Check robot state (loading/unloading/moving/idle)
+                state = ''
+                if hasattr(o, '_loading_from') and o._loading_from is not None:
+                    state = ' LOADING'
+                    color = 'robot'  # Active color
+                elif hasattr(o, '_unloading_to') and o._unloading_to is not None:
+                    state = ' UNLOADING'
+                    color = 'robot'  # Active color
+                elif hasattr(o, '_move_target') and o._move_target is not None:
+                    state = ' MOVING'
+                else:
+                    state = ' IDLE'
+                
                 markup.append((color, f"R {oid:2d} {name:10s}"))
                 markup.append(('dim', f" @({x:2d},{y:2d}) "))
                 markup.append((color, f"{bar} {inventory}/{capacity}"))
+                markup.append(('dim', state))
                 markup.append('\n')
                 
             elif isinstance(o, Mine):
@@ -416,7 +430,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                 markup.append((color, f"B {oid:2d} {name:10s}"))
                 markup.append(('dim', f" @({x:2d},{y:2d}) "))
                 markup.append((color, f"{status} mat:{stored}"))
-                markup.append('\\n')
+                markup.append('\n')
         
         return markup
     
@@ -597,16 +611,16 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                     pass
                 raise urwid.ExitMainLoop()
             else:
-                # Any other key: restart
+                # Any other key: restart - need to exit loop first to clean up console
                 flag_file = Path(__file__).parent.parent / "flag_new_version.lck"
                 try:
                     flag_file.unlink()  # Remove flag file
                 except Exception:
                     pass
+                # Store restart flag for after loop exits
                 import sys
-                import os
-                sys.stdout.flush()
-                os.execv(sys.executable, [sys.executable] + sys.argv)
+                sys._kaivosai_restart = True
+                raise urwid.ExitMainLoop()
         
         loop.widget = overlay
         loop.unhandled_input = handle_version_key
@@ -628,6 +642,8 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         # Handle material production and consumption
         game_seconds = clock.seconds
         game_map.tick_production(game_seconds)
+        # Handle robot material transfers (loading/unloading)
+        game_map.tick_transfer(game_seconds)
         map_text.set_text(build_map_display())
         object_list_text.set_text(build_object_list())
         events_text.set_text(build_events_display())
@@ -667,7 +683,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         # System commands: system <subcommand>
         if first == 'system':
             if len(parts) < 2:
-                return 'Usage: system <help|version|quit|pause|resume>'
+                return 'Usage: system <help|version|quit|pause|resume|optimize>'
             sub = parts[1]
             
             if sub == 'quit':
@@ -683,6 +699,42 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             elif sub == 'resume':
                 clock.start()
                 return 'Clock resumed'
+            elif sub in ('optimize', 'optimize-ids', 'opt'):
+                # Optimize object IDs to be sequential 1,2,3,4...
+                # Filter only objects that should have IDs (exclude Rocks)
+                from .models import Robot, Mine, Storage, Base
+                all_objects = [o for o in game_map.cells.values() 
+                              if isinstance(o, (Robot, Mine, Storage, Base))]
+                objects = sorted(all_objects, key=lambda o: o.id)
+                old_ids = [o.id for o in objects]
+                count = 0
+                
+                # First pass: change IDs in memory
+                for new_id, obj in enumerate(objects, start=1):
+                    if obj.id != new_id:
+                        obj.id = new_id
+                        count += 1
+                
+                # Second pass: update database (delete all and re-insert)
+                if count > 0 and conn:
+                    from .db import persist_object
+                    cursor = conn.cursor()
+                    # Delete all game objects from database and reset autoincrement
+                    cursor.execute("DELETE FROM game_objects")
+                    cursor.execute("DELETE FROM sqlite_sequence WHERE name='game_objects'")
+                    conn.commit()
+                    
+                    # Re-insert only objects with IDs (not Rocks)
+                    for obj in game_map.cells.values():
+                        if isinstance(obj, (Robot, Mine, Storage, Base)):
+                            persist_object(conn, obj)
+                    
+                    game_seconds = clock.seconds if clock else 0
+                    log_event(conn, game_seconds, 'system', 
+                             f'Optimized {count} object IDs: {old_ids} -> [1..{len(objects)}]', None, None)
+                    return f'Optimized {count} object IDs to sequential order (1,2,3...). Total objects with IDs: {len(objects)}'
+                else:
+                    return f'Object IDs are already optimized (1..{len(objects)})'
             else:
                 return f"Unknown system command: {sub}"
         
@@ -722,6 +774,9 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                     return f'Error: {e}'
             elif sub == 'demo':
                 # Add demo objects
+                import os
+                import random
+                import time
                 seed_value = int(time.time() * 1000000) + int.from_bytes(os.urandom(4), 'big')
                 random.seed(seed_value)
                 
@@ -777,6 +832,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             return ("Commands (with shortcuts):\n"
                     "ROBOTS:\n"
                     "• robot ID goto X Y (r ID g X Y) - move robot to position\n"
+                    "• robot ID goto OBJ_ID (r ID g OBJ_ID) - move robot next to object\n"
                     "• robot ID load [amount] (r ID l) - load from adjacent object\n"
                     "• robot ID unload [amount] (r ID u) - unload to adjacent object\n"
                     "\n"
@@ -796,6 +852,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                     "SYSTEM:\n"
                     "• system pause (sys p) - pause clock\n"
                     "• system resume (sys start) - resume clock\n"
+                    "• system optimize (sys opt) - optimize object IDs\n"
                     "• system version (sys v) - show version\n"
                     "• system help (sys h) - this help\n"
                     "• system quit (sys q) - exit\n"
@@ -957,26 +1014,22 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                     except ValueError:
                         pass
                 
-                loaded = robot.load_from(source, amount)
-                if loaded > 0:
-                    # Persist both objects
-                    if conn:
-                        from .db import persist_object
-                        persist_object(conn, robot)
-                        persist_object(conn, source)
-                        # Log event
-                        game_seconds = clock.seconds if clock else 0
-                        source_name = getattr(source, 'name', type(source).__name__)
-                        log_event(conn, game_seconds, 'robot_loaded', 
-                                 f'Robot {rid} loaded {loaded} from {source_name} at ({robot.pos[0]},{robot.pos[1]})', robot, robot.pos)
-                        # Check if robot is full
-                        if robot.inventory >= robot.capacity:
-                            log_event(conn, game_seconds, 'robot_full', 
-                                     f'Robot {rid} inventory full ({robot.inventory}/{robot.capacity})', robot, robot.pos)
+                # Start loading process (1 material/second)
+                robot.start_loading(source, amount)
+                
+                # Persist robot
+                if conn:
+                    from .db import persist_object
+                    persist_object(conn, robot)
+                    # Log start event
+                    game_seconds = clock.seconds if clock else 0
                     source_name = getattr(source, 'name', type(source).__name__)
-                    return f'Robot {rid} loaded {loaded} material from {source_name}. Inventory: {robot.inventory}/{robot.capacity}'
-                else:
-                    return f'Could not load (robot full or source empty)'
+                    log_event(conn, game_seconds, 'robot_loading', 
+                             f'Robot {rid} started loading from {source_name} at ({robot.pos[0]},{robot.pos[1]})', robot, robot.pos)
+                
+                source_name = getattr(source, 'name', type(source).__name__)
+                transfer_amount = amount if amount is not None else (robot.capacity - robot.inventory)
+                return f'Robot {rid} started loading {transfer_amount} material from {source_name} (1/s). Inventory: {robot.inventory}/{robot.capacity}'
             
             # Unload command
             if len(parts) >= 3 and parts[2] in ('unload', 'dump', 'drop', 'put', 'store'):
@@ -996,30 +1049,26 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                     except ValueError:
                         pass
                 
-                unloaded = robot.unload_to(target, amount)
-                if unloaded > 0:
-                    # Persist both objects
-                    if conn:
-                        from .db import persist_object
-                        persist_object(conn, robot)
-                        persist_object(conn, target)
-                        # Log event
-                        game_seconds = clock.seconds if clock else 0
-                        target_name = getattr(target, 'name', type(target).__name__)
-                        log_event(conn, game_seconds, 'robot_unloaded', 
-                                 f'Robot {rid} unloaded {unloaded} to {target_name} at ({robot.pos[0]},{robot.pos[1]})', robot, robot.pos)
-                        # Check if robot is empty
-                        if robot.inventory == 0:
-                            log_event(conn, game_seconds, 'robot_empty', 
-                                     f'Robot {rid} inventory empty', robot, robot.pos)
+                # Start unloading process (1 material/second)
+                robot.start_unloading(target, amount)
+                
+                # Persist robot
+                if conn:
+                    from .db import persist_object
+                    persist_object(conn, robot)
+                    # Log start event
+                    game_seconds = clock.seconds if clock else 0
                     target_name = getattr(target, 'name', type(target).__name__)
-                    return f'Robot {rid} unloaded {unloaded} material to {target_name}. Inventory: {robot.inventory}/{robot.capacity}'
-                else:
-                    return f'Could not unload (robot empty or target full)'
+                    log_event(conn, game_seconds, 'robot_unloading', 
+                             f'Robot {rid} started unloading to {target_name} at ({robot.pos[0]},{robot.pos[1]})', robot, robot.pos)
+                
+                target_name = getattr(target, 'name', type(target).__name__)
+                transfer_amount = amount if amount is not None else robot.inventory
+                return f'Robot {rid} started unloading {transfer_amount} material to {target_name} (1/s). Inventory: {robot.inventory}/{robot.capacity}'
             
             # Skip "go", "goto", "move" for movement commands
             if len(parts) < 4:
-                return 'Usage: robot ID <go to X Y | load [amount] | unload [amount]>'
+                return 'Usage: robot ID <go to X Y | go to OBJ_ID | load [amount] | unload [amount]>'
             
             offset = 2
             if parts[2] in ('go', 'goto', 'move', 'walk'):
@@ -1027,14 +1076,56 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             if offset < len(parts) and parts[offset] == 'to':
                 offset += 1
             
-            if len(parts) < offset + 2:
-                return 'Usage: robot ID go to X Y'
-            
-            try:
-                x = int(parts[offset])
-                y = int(parts[offset + 1])
-            except (ValueError, IndexError):
-                return 'Coordinates must be numbers'
+            # Check if it's object ID (single number) or coordinates (two numbers)
+            if len(parts) == offset + 1:
+                # Single parameter: treat as object ID
+                try:
+                    target_id = int(parts[offset])
+                except (ValueError, IndexError):
+                    return 'Object ID must be a number'
+                
+                # Find target object
+                target_obj = None
+                for obj in game_map.cells.values():
+                    if getattr(obj, 'id', None) == target_id:
+                        target_obj = obj
+                        break
+                
+                if not target_obj:
+                    return f'Object {target_id} not found'
+                
+                # Cannot target robots
+                if isinstance(target_obj, Robot):
+                    return 'Cannot target robots. Use coordinates or target Mine/Storage/Base.'
+                
+                # Find adjacent free cell
+                target_pos = target_obj.pos
+                adjacent_positions = [
+                    (target_pos[0] - 1, target_pos[1]),  # left
+                    (target_pos[0] + 1, target_pos[1]),  # right
+                    (target_pos[0], target_pos[1] - 1),  # up
+                    (target_pos[0], target_pos[1] + 1),  # down
+                ]
+                
+                free_adjacent = [pos for pos in adjacent_positions if game_map.get(pos) is None]
+                
+                if not free_adjacent:
+                    return f'No free adjacent positions around object {target_id}'
+                
+                # Choose closest free position to robot
+                robot_pos = robot.pos
+                best_pos = min(free_adjacent, key=lambda p: abs(p[0] - robot_pos[0]) + abs(p[1] - robot_pos[1]))
+                x, y = best_pos
+                
+            elif len(parts) >= offset + 2:
+                # Two parameters: treat as X Y coordinates
+                try:
+                    x = int(parts[offset])
+                    y = int(parts[offset + 1])
+                except (ValueError, IndexError):
+                    return 'Coordinates must be numbers'
+            else:
+                return 'Usage: robot ID go to X Y or robot ID go to OBJ_ID'
             
             try:
                 started = game_map.command_move_robot(rid, (x, y))
@@ -1106,6 +1197,15 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
     loop = urwid.MainLoop(main_pile, palette=palette, unhandled_input=handle_input)
     refresh_display(loop)
     loop.run()
+    
+    # Check if we should restart after loop exits
+    import sys
+    if hasattr(sys, '_kaivosai_restart') and sys._kaivosai_restart:
+        import os
+        # Clean up flag
+        delattr(sys, '_kaivosai_restart')
+        # Restart the program
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 def run_demo():

@@ -207,14 +207,14 @@ def log_event(conn: sqlite3.Connection, timestamp: float, event_type: str, messa
 
 
 def get_recent_events(conn: sqlite3.Connection, limit: int = 20):
-    """Get recent game events.
+    """Get recent game events, oldest first (newest at bottom).
     
     Args:
         conn: Database connection
         limit: Maximum number of events to return
         
     Returns:
-        List of event rows
+        List of event rows (oldest first, newest last)
     """
     cursor = conn.execute(
         """
@@ -225,4 +225,5 @@ def get_recent_events(conn: sqlite3.Connection, limit: int = 20):
         """,
         (limit,)
     )
-    return cursor.fetchall()
+    # Reverse the list so oldest is first, newest is last (at bottom of display)
+    return list(reversed(cursor.fetchall()))
