@@ -143,8 +143,13 @@ class Map:
     # Robots can be assigned movement targets. Each robot stores its own path.
     # Call tick_movement() once per game second to advance all robots one step.
     
-    def command_move_robot(self, robot_id: int, target: Position) -> bool:
+    def command_move_robot(self, robot_id: int, target: Position, stop_distance: int = 0) -> bool:
         """Assign a robot to move to a target position.
+        
+        Args:
+            robot_id: ID of the robot to move
+            target: Target position (x, y)
+            stop_distance: Stop N cells away from target (0 = go all the way)
         
         Returns True if movement started, False if already at target or no path found.
         Raises ValueError if robot not found or target invalid.
@@ -164,10 +169,17 @@ class Map:
         if not self.in_bounds(target):
             raise ValueError(f'Target {target} out of bounds')
         
+        # Calculate Manhattan distance to target
+        current_distance = abs(robot_pos[0] - target[0]) + abs(robot_pos[1] - target[1])
+        
+        # If already at desired distance, return False
+        if current_distance == stop_distance:
+            return False
+        
         if robot_pos == target:
             return False  # Already at target
         
-        if target in self.cells:
+        if target in self.cells and stop_distance == 0:
             raise ValueError(f'Target {target} is occupied')
         
         # Compute path using BFS
@@ -175,9 +187,18 @@ class Map:
         if not path:
             return False  # No path available
         
+        # If stop_distance > 0, truncate path to stop N cells away
+        if stop_distance > 0 and len(path) > stop_distance:
+            path = path[:-stop_distance]
+        
+        # If path is empty after truncation, already at target distance
+        if not path:
+            return False
+        
         # Store movement state on the robot object itself
         robot._move_target = target
         robot._move_path = path
+        robot._move_stop_distance = stop_distance
         return True
     
     def tick_movement(self):
@@ -284,6 +305,28 @@ class Map:
             if obj._loading_from is not None and obj._loading_amount is not None:
                 source = obj._loading_from
                 
+                # Check early termination conditions
+                source_empty = False
+                if hasattr(source, 'stored'):
+                    source_empty = source.stored == 0
+                elif isinstance(source, Robot):
+                    source_empty = source.inventory == 0
+                    
+                robot_full = obj.inventory >= obj.capacity
+                
+                # If robot is full or source is empty, stop loading immediately
+                if robot_full or source_empty:
+                    if self.conn:
+                        source_name = getattr(source, 'name', type(source).__name__)
+                        if robot_full:
+                            log_event(self.conn, game_seconds, 'robot_full', 
+                                     f'Robot {obj.id} inventory full ({obj.inventory}/{obj.capacity})', obj, pos)
+                        log_event(self.conn, game_seconds, 'robot_loaded', 
+                                 f'Robot {obj.id} finished loading from {source_name} at ({pos[0]},{pos[1]})', obj, pos)
+                    obj._loading_from = None
+                    obj._loading_amount = None
+                    continue
+                
                 # Check if enough time passed (1 second)
                 if game_seconds >= obj._last_transfer_time + 1:
                     # Transfer 1 material
@@ -324,6 +367,28 @@ class Map:
             # Handle unloading
             elif obj._unloading_to is not None and obj._unloading_amount is not None:
                 target = obj._unloading_to
+                
+                # Check early termination conditions
+                robot_empty = obj.inventory == 0
+                
+                target_full = False
+                if hasattr(target, 'stored') and hasattr(target, 'capacity'):
+                    target_full = target.stored >= target.capacity
+                elif isinstance(target, Robot):
+                    target_full = target.inventory >= target.capacity
+                    
+                # If robot is empty or target is full, stop unloading immediately
+                if robot_empty or target_full:
+                    if self.conn:
+                        target_name = getattr(target, 'name', type(target).__name__)
+                        if target_full:
+                            log_event(self.conn, game_seconds, 'target_full', 
+                                     f'{target_name} is full ({target.stored if hasattr(target, "stored") else target.inventory}/{target.capacity})', target, target.pos if hasattr(target, "pos") else None)
+                        log_event(self.conn, game_seconds, 'robot_unloaded', 
+                                 f'Robot {obj.id} finished unloading to {target_name} at ({pos[0]},{pos[1]})', obj, pos)
+                    obj._unloading_to = None
+                    obj._unloading_amount = None
+                    continue
                 
                 # Check if enough time passed (1 second)
                 if game_seconds >= obj._last_transfer_time + 1:

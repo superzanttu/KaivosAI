@@ -4,7 +4,7 @@ Expose a small, explicit surface for consumers. `_legacy.py` remains
 in the package for compatibility but is not re-exported by default.
 """
 
-VERSION = "0.7.1"
+VERSION = "0.10.4"
 
 from .db import get_game_conn, init_game_db, load_objects_from_db
 from .map import Map

@@ -193,6 +193,109 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         ('pack', urwid.LineBox(command_input, title='Command (help, quit)')),
     ])
     
+    # Editor state: track which robot's commands are being edited
+    editor_state = {'robot': None, 'overlay': None}
+    
+    def show_command_editor(robot):
+        """Show modal text editor for robot commands."""
+        if editor_state['robot'] is not None:
+            return  # Already editing another robot
+        
+        editor_state['robot'] = robot
+        
+        # Initialize commands_text if needed
+        if not hasattr(robot, 'commands_text') or robot.commands_text is None:
+            robot.commands_text = [''] * 10
+        
+        # Create text content from robot commands (10 lines)
+        lines = []
+        for i, line in enumerate(robot.commands_text[:10]):
+            lines.append(urwid.Edit('', line[:15] if line else '', multiline=False))
+        
+        editor_pile = urwid.Pile(lines)
+        editor_filler = urwid.Filler(editor_pile, valign='top')
+        
+        # Instructions
+        instructions = urwid.Text([
+            ('info', 'Arrow keys: navigate | '),
+            ('event_good', 'F2: Save | '),
+            ('event_bad', 'ESC: Cancel')
+        ])
+        
+        editor_box = urwid.LineBox(
+            urwid.Pile([
+                ('weight', 1, editor_filler),
+                ('pack', urwid.Divider('-')),
+                ('pack', instructions),
+            ]),
+            title=f"Commands: {robot.name} (ID {robot.id}) - 10 lines x 20 chars"
+        )
+        
+        # Create overlay widget
+        overlay_widget = urwid.Overlay(
+            editor_box,
+            main_pile,
+            align='center',
+            width=('relative', 60),
+            valign='middle',
+            height=('relative', 60),
+        )
+        
+        def editor_keypress(widget, size, key):
+            """Handle editor keystrokes."""
+            if key == 'esc':
+                # Cancel editing
+                editor_state['robot'] = None
+                editor_state['overlay'] = None
+                loop.widget = main_pile
+                status_text.set_text('Command editing cancelled')
+                return True
+            elif key == 'f2':
+                # Save changes
+                for i, edit_widget in enumerate(lines):
+                    text = edit_widget.get_edit_text()
+                    # Truncate to 20 chars
+                    robot.commands_text[i] = text[:20]
+                
+                # Persist to database
+                if conn:
+                    from .db import persist_object
+                    persist_object(conn, robot)
+                
+                editor_state['robot'] = None
+                editor_state['overlay'] = None
+                loop.widget = main_pile
+                status_text.set_text(f'Commands saved for {robot.name}')
+                return True
+            elif key == 'up':
+                # Move to previous line
+                try:
+                    current_idx = lines.index(editor_pile.focus)
+                    if current_idx > 0:
+                        editor_pile.focus_position = current_idx - 1
+                except:
+                    pass
+                return True
+            elif key == 'down':
+                # Move to next line
+                try:
+                    current_idx = lines.index(editor_pile.focus)
+                    if current_idx < len(lines) - 1:
+                        editor_pile.focus_position = current_idx + 1
+                except:
+                    pass
+                return True
+            else:
+                # Pass other keys to default handler
+                return widget._keypress(size, key)
+        
+        # Override keypress
+        overlay_widget._keypress = overlay_widget.keypress
+        overlay_widget.keypress = lambda size, key: editor_keypress(overlay_widget, size, key)
+        
+        editor_state['overlay'] = overlay_widget
+        loop.widget = overlay_widget
+    
     def build_map_display():
         """Build ASCII map text with color markup."""
         if not game_map.cells:
@@ -595,12 +698,11 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
     def show_version_dialog():
         """Show modal dialog for new version notification."""
         from pathlib import Path
-        from kaivosai import VERSION as NEW_VERSION
         
         # Create dialog content
-        banner = urwid.Text(('version_banner', f' NEW VERSION AVAILABLE: {NEW_VERSION} '), align='center')
-        message = urwid.Text('\nA new version of KaivosAI has been detected.\n', align='center')
-        instructions = urwid.Text('Press any key to restart\nPress ESC to quit', align='center')
+        banner = urwid.Text(('version_banner', ' NEW VERSION AVAILABLE '), align='center')
+        message = urwid.Text('\nA new version of KaivosAI has been detected.\nPlease restart the application to load the new code.\n', align='center')
+        instructions = urwid.Text('Press any key to quit', align='center')
         
         dialog_content = urwid.Pile([
             urwid.Divider(),
@@ -622,25 +724,13 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         )
         
         def handle_version_key(key):
-            if key == 'esc':
-                # User wants to quit
-                flag_file = Path(__file__).parent.parent / "flag_new_version.lck"
-                try:
-                    flag_file.unlink()  # Remove flag file
-                except Exception:
-                    pass
-                raise urwid.ExitMainLoop()
-            else:
-                # Any other key: restart - need to exit loop first to clean up console
-                flag_file = Path(__file__).parent.parent / "flag_new_version.lck"
-                try:
-                    flag_file.unlink()  # Remove flag file
-                except Exception:
-                    pass
-                # Store restart flag for after loop exits
-                import sys
-                sys._kaivosai_restart = True
-                raise urwid.ExitMainLoop()
+            # Any key press: quit application
+            flag_file = Path(__file__).parent.parent / "flag_new_version.lck"
+            try:
+                flag_file.unlink()  # Remove flag file
+            except Exception:
+                pass
+            raise urwid.ExitMainLoop()
         
         loop.widget = overlay
         loop.unhandled_input = handle_version_key
@@ -676,7 +766,10 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         
         Syntax: <object> [id] <verb> [params...]
         Examples:
-            robot 3 goto 5 7    (r 3 g 5 7)
+            robot 3 goto 5 7       (r 3 g 5 7)
+            robot 3 goto 5 7 d 2   (stop 2 cells away)
+            robot 4 goto 5         (r 4 g 5, go next to object 5)
+            robot 4 goto 5 d 3     (stop 3 cells from object 5)
             robot 3 load        (r 3 l)
             robot 3 unload 5    (r 3 u 5)
             create robot 5 7    (c robot 5 7 or c r 5 7)
@@ -722,7 +815,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             elif sub == 'resume':
                 clock.start()
                 return 'Clock resumed'
-            elif sub in ('optimize', 'optimize-ids', 'opt'):
+            elif sub == 'optimize':
                 # Optimize object IDs to be sequential 1,2,3,4...
                 # Filter only objects that should have IDs (exclude Rocks)
                 from .models import Robot, Mine, Storage, Base
@@ -854,10 +947,11 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         if first == 'help':
             return ("Commands (with shortcuts):\n"
                     "ROBOTS:\n"
-                    "• robot ID goto X Y (r ID g X Y) - move robot to position\n"
-                    "• robot ID goto OBJ_ID (r ID g OBJ_ID) - move robot next to object\n"
+                    "• robot ID goto X Y [d N] (r ID g X Y [d N]) - move robot to position\n"
+                    "• robot ID goto OBJ_ID [d N] (r ID g OBJ_ID [d N]) - move robot near object\n"
                     "• robot ID load [amount] (r ID l) - load from adjacent object\n"
                     "• robot ID unload [amount] (r ID u) - unload to adjacent object\n"
+                    "• robot ID program (r ID p) - edit robot commands (F2=save, ESC=cancel)\n"
                     "\n"
                     "OBJECTS:\n"
                     "• create TYPE X Y (c TYPE X Y) - create object at position\n"
@@ -873,12 +967,12 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                     "• map reset (map reset) - clear everything\n"
                     "\n"
                     "SYSTEM:\n"
-                    "• system pause (sys p) - pause clock\n"
-                    "• system resume (sys start) - resume clock\n"
-                    "• system optimize (sys opt) - optimize object IDs\n"
-                    "• system version (sys v) - show version\n"
-                    "• system help (sys h) - this help\n"
-                    "• system quit (sys q) - exit\n"
+                    "• system pause - pause clock\n"
+                    "• system resume - resume clock\n"
+                    "• system optimize - optimize object IDs\n"
+                    "• system version - show version\n"
+                    "• system help - this help\n"
+                    "• system quit - exit\n"
                     "\n"
                     "Press TAB for command completion")
         
@@ -1000,8 +1094,8 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                 return f'Error: {e}'
         
         # Robot movement
-        if first in ('robot', 'bot'):
-            # Patterns: "robot 3 go to 5 7", "bot 3 goto 5 7", "robot 3 load", "robot 3 unload"
+        if first in ('robot', 'bot', 'r'):
+            # Patterns: "robot 3 go to 5 7", "bot 3 goto 5 7", "r 3 g 5", "robot 3 load", "robot 3 unload"
             if len(parts) < 2:
                 return 'Usage: robot ID <command>'
             try:
@@ -1054,6 +1148,11 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                 transfer_amount = amount if amount is not None else (robot.capacity - robot.inventory)
                 return f'Robot {rid} started loading {transfer_amount} material from {source_name} (1/s). Inventory: {robot.inventory}/{robot.capacity}'
             
+            # Program/edit commands
+            if len(parts) >= 3 and parts[2] in ('program', 'prg', 'prog'):
+                show_command_editor(robot)
+                return f'Editing commands for {robot.name}'
+            
             # Unload command
             if len(parts) >= 3 and parts[2] in ('unload', 'dump', 'drop', 'put', 'store'):
                 adjacent = game_map.get_adjacent_objects(robot.pos)
@@ -1091,20 +1190,43 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             
             # Skip "go", "goto", "move" for movement commands
             if len(parts) < 4:
-                return 'Usage: robot ID <go to X Y | go to OBJ_ID | load [amount] | unload [amount]>'
+                return 'Usage: robot ID <go to X Y [distance N] | go to OBJ_ID [distance N] | load [amount] | unload [amount]>'
             
             offset = 2
-            if parts[2] in ('go', 'goto', 'move', 'walk'):
+            if parts[2] in ('go', 'goto', 'g', 'move', 'm', 'walk'):
                 offset = 3
             if offset < len(parts) and parts[offset] == 'to':
                 offset += 1
             
-            # Check if it's object ID (single number) or coordinates (two numbers)
-            if len(parts) == offset + 1:
-                # Single parameter: treat as object ID
+            # Parse optional distance parameter (stop N cells away)
+            # Look for "distance N" or "d N" anywhere after the target
+            stop_distance = 0
+            distance_keyword_idx = -1
+            
+            for i in range(offset, len(parts)):
+                if parts[i] in ('distance', 'dist', 'd'):
+                    distance_keyword_idx = i
+                    break
+            
+            if distance_keyword_idx >= 0:
+                # Found distance keyword, next param should be the number
+                if distance_keyword_idx + 1 < len(parts):
+                    try:
+                        stop_distance = int(parts[distance_keyword_idx + 1])
+                    except ValueError:
+                        return 'Distance must be a number'
+                else:
+                    return 'Distance keyword requires a number'
+            
+            # Determine if target is object ID (1 param) or coordinates (2 params)
+            # Count parameters before distance keyword
+            param_count = (distance_keyword_idx - offset) if distance_keyword_idx >= 0 else (len(parts) - offset)
+            
+            if param_count == 1:
+                # Single parameter: object ID
                 try:
                     target_id = int(parts[offset])
-                except (ValueError, IndexError):
+                except ValueError:
                     return 'Object ID must be a number'
                 
                 # Find target object
@@ -1121,45 +1243,35 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                 if isinstance(target_obj, Robot):
                     return 'Cannot target robots. Use coordinates or target Mine/Storage/Base.'
                 
-                # Find adjacent free cell
-                target_pos = target_obj.pos
-                adjacent_positions = [
-                    (target_pos[0] - 1, target_pos[1]),  # left
-                    (target_pos[0] + 1, target_pos[1]),  # right
-                    (target_pos[0], target_pos[1] - 1),  # up
-                    (target_pos[0], target_pos[1] + 1),  # down
-                ]
+                # Get object position
+                x, y = target_obj.pos
                 
-                free_adjacent = [pos for pos in adjacent_positions if game_map.get(pos) is None]
-                
-                if not free_adjacent:
-                    return f'No free adjacent positions around object {target_id}'
-                
-                # Choose closest free position to robot
-                robot_pos = robot.pos
-                best_pos = min(free_adjacent, key=lambda p: abs(p[0] - robot_pos[0]) + abs(p[1] - robot_pos[1]))
-                x, y = best_pos
-                
-            elif len(parts) >= offset + 2:
-                # Two parameters: treat as X Y coordinates
+                # Default: stop 1 cell away (adjacent) if no distance specified
+                if stop_distance == 0:
+                    stop_distance = 1
+                    
+            elif param_count >= 2:
+                # Two parameters: X Y coordinates
                 try:
                     x = int(parts[offset])
                     y = int(parts[offset + 1])
                 except (ValueError, IndexError):
                     return 'Coordinates must be numbers'
             else:
-                return 'Usage: robot ID go to X Y or robot ID go to OBJ_ID'
+                return 'Usage: robot ID go to X Y [distance N] or robot ID go to OBJ_ID [distance N]'
             
             try:
-                started = game_map.command_move_robot(rid, (x, y))
+                started = game_map.command_move_robot(rid, (x, y), stop_distance)
                 if started:
                     # Log movement start event
                     if conn:
                         game_seconds = clock.seconds if clock else 0
                         name = getattr(robot, 'name', f'Robot {rid}')
+                        dist_msg = f' (stop {stop_distance} cells away)' if stop_distance > 0 else ''
                         log_event(conn, game_seconds, 'robot_moving', 
-                                 f'{name} started moving to ({x},{y}) from ({robot.pos[0]},{robot.pos[1]})', robot, robot.pos)
-                    return f'Robot {rid} moving to ({x},{y})'
+                                 f'{name} started moving to ({x},{y}){dist_msg} from ({robot.pos[0]},{robot.pos[1]})', robot, robot.pos)
+                    dist_text = f' (stopping {stop_distance} cells away)' if stop_distance > 0 else ''
+                    return f'Robot {rid} moving to ({x},{y}){dist_text}'
                 else:
                     return 'No path available or already at target'
             except ValueError as e:
@@ -1220,15 +1332,6 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
     loop = urwid.MainLoop(main_pile, palette=palette, unhandled_input=handle_input)
     refresh_display(loop)
     loop.run()
-    
-    # Check if we should restart after loop exits
-    import sys
-    if hasattr(sys, '_kaivosai_restart') and sys._kaivosai_restart:
-        import os
-        # Clean up flag
-        delattr(sys, '_kaivosai_restart')
-        # Restart the program
-        os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 def run_demo():

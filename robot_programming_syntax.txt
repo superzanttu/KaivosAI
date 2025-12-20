@@ -1,0 +1,622 @@
+# RoboBASIC - Robot Programming Language
+## KaivosAI Automation Language v2.0
+
+### About RoboBASIC
+**RoboBASIC** is a simple, label-based programming language designed for autonomous robot control in the KaivosAI mining simulation. The name combines "Robo" (robots) with "BASIC" to emphasize its simple, BASIC-inspired syntax that's easy to learn and use.
+
+### Design Philosophy
+- Simple, label-based scripting (max 20 chars/line for editor compatibility)
+- Based on existing game commands (go, load, unload)
+- Autonomous material transfer between mines, storage, and bases
+- Conditional execution, control flow, and inter-robot messaging
+- No line numbers - uses readable labels for jumps
+- Inspired by BASIC, Assembly, and modern scripting languages
+
+---
+
+## Command Reference
+
+### Label Declaration
+
+**:LABEL**
+- Declares a jump target with name LABEL
+- Must be at start of line, followed by colon
+- Label names: uppercase letters/numbers, max 10 chars
+- Example: `:LOOP` or `:START` or `:MINE5`
+- Max length: 11 chars (`:` + 10 chars)
+- Labels can be on same line as command: `:LOOP GOTO 5`
+
+### Movement Commands
+
+**GOTO X Y [D N]**
+- Move robot to coordinates (X, Y)
+- Optional: D N = stop N cells away from target
+- Example: `GOTO 10 15` or `GOTO 10 15 D 2`
+- Max length: 15 chars
+
+**GOTO ID [D N]**
+- Move robot adjacent to object with ID
+- Optional: D N = stop N cells away from object
+- Example: `GOTO 5` or `GOTO 5 D 3`
+- Max length: 12 chars
+- Note: Without distance, stops 1 cell away (adjacent)
+
+**GOTO :LABEL**
+- Unconditional jump to label
+- Example: `GOTO :LOOP`
+- Max length: 12 chars
+
+### Material Transfer Commands
+
+**LOAD [N]**
+- Load N materials from adjacent object (mine/storage/base/robot)
+- If N omitted, loads until full
+- Example: `LOAD 3` or `LOAD`
+- Max length: 6 chars
+
+**UNLOAD [N]**
+- Unload N materials to adjacent object (storage/base/robot)
+- If N omitted, unloads all inventory
+- Example: `UNLOAD 5` or `UNLOAD`
+- Max length: 8 chars
+
+### Control Flow Commands
+
+**IF [NOT] FULL :LABEL**
+- If robot inventory is full (or NOT full with NOT), jump to label
+- Example: `IF FULL :UNLOAD` (12 chars)
+- Example: `IF NOT FULL :L` (14 chars)
+- Max length: 14 chars (without NOT), 16 chars (with NOT)
+
+**IF [NOT] EMPTY :LABEL**
+- If robot inventory is empty (or NOT empty with NOT), jump to label
+- Example: `IF EMPTY :LOAD` (13 chars)
+- Example: `IF NOT EMPTY :L` (15 chars)
+- Max length: 15 chars (without NOT), 17 chars (with NOT - use short label!)
+
+**IF [NOT] NEAR N TYPE :L**
+- Check if N objects of TYPE are adjacent (or NOT adjacent with NOT)
+- N: 0 (none), 1 (exactly one), MANY (two or more)
+- TYPE: SRC, DST, MINE, STORE, BASE, ROBOT
+- Example: `IF NEAR 1 SRC :GOTO` - exactly one source adjacent (20 chars)
+- Example: `IF NEAR 0 DST :WAIT` - no destinations adjacent (20 chars)
+- Example: `IF NOT NEAR 1 SRC :L` - NOT one source (20 chars)
+- Example: `IF NOT NEAR SRC :GO` - shorthand (19 chars)
+- Max length: 20 chars (fits well with descriptive labels!)
+- Note: LOAD/UNLOAD require exactly 1 adjacent object
+- Note: `IF NOT NEAR 0 X` = `IF NEAR 1 X` or `IF NEAR MANY X`
+
+**IF [NOT] NEAR SRC :L**
+- Shorthand for `IF [NOT] NEAR 1 SRC :L` (exactly one source)
+- If adjacent object can provide materials (Mine, Storage, Base, Robot)
+- Example: `IF NEAR SRC :GOTO` (16 chars)
+- Example: `IF NOT NEAR SRC :GO` (19 chars)
+- Max length: 20 chars
+
+**IF [NOT] NEAR DST :L**
+- Shorthand for `IF [NOT] NEAR 1 DST :L` (exactly one destination)
+- If adjacent object can receive materials (Storage, Base, Robot)
+- Example: `IF NEAR DST :GOTO` (16 chars)
+- Example: `IF NOT NEAR DST :GO` (19 chars)
+- Max length: 20 chars
+
+**IF [NOT] NEAR MINE :L**
+- Shorthand for `IF [NOT] NEAR 1 MINE :L` (exactly one mine)
+- If mine is adjacent (within 1 cell)
+- Example: `IF NEAR MINE :LOAD` (18 chars)
+- Example: `IF NOT NEAR MINE :L` (19 chars)
+- Max length: 20 chars
+
+**IF [NOT] NEAR STORE :L**
+- Shorthand for `IF [NOT] NEAR 1 STORE :L` (exactly one storage)
+- If storage is adjacent (within 1 cell)
+- Example: `IF NEAR STORE :DROP` (19 chars)
+- Example: `IF NOT NEAR STORE :L` (20 chars - fits!)
+- Max length: 20 chars
+
+**IF [NOT] NEAR BASE :L**
+- Shorthand for `IF [NOT] NEAR 1 BASE :L` (exactly one base)
+- If base is adjacent (within 1 cell)
+- Example: `IF NEAR BASE :LOAD` (18 chars)
+- Example: `IF NOT NEAR BASE :GO` (20 chars - fits!)
+- Max length: 20 chars
+
+**IF [NOT] NEAR ROBOT :L**
+- Shorthand for `IF [NOT] NEAR 1 ROBOT :L` (exactly one robot)
+- If another robot is adjacent (within 1 cell)
+- Example: `IF NEAR ROBOT :MOVE` (19 chars)
+- Example: `IF NOT NEAR ROBOT :L` (20 chars - fits!)
+- Max length: 20 chars
+
+**WAIT N**
+- Pause execution for N seconds
+- Example: `WAIT 10`
+- Max length: 7 chars
+
+**END**
+- Stop program execution immediately
+- Robot becomes idle
+- Can be used to exit loops or halt on error
+- Max length: 3 chars
+
+**STOP**
+- Alias for END
+- Max length: 4 chars
+
+### Directional Movement Commands
+
+**UP N** or **U N**
+- Move N cells up (negative Y direction)
+- Example: `UP 3` or `U 3`
+- Max length: 5 chars
+
+**DOWN N** or **D N**
+- Move N cells down (positive Y direction)
+- Example: `DOWN 5` or `D 5`
+- Max length: 6 chars
+
+**LEFT N** or **L N**
+- Move N cells left (negative X direction)
+- Example: `LEFT 2` or `L 2`
+- Max length: 6 chars
+
+**RIGHT N** or **R N**
+- Move N cells right (positive X direction)
+- Example: `RIGHT 4` or `R 4`
+- Max length: 7 chars
+
+### Messaging Commands
+
+**SEND TYPE MSG**
+- Broadcast message MSG to all objects of TYPE
+- TYPE: ROBOTS, MINES, STORES, BASES
+- Message: single word, max 8 chars, uppercase
+- Messages expire after 1 game hour (3600 game seconds)
+- Example: `SEND ROBOTS GO` or `SEND BASES FULL`
+- Max length: 15 chars
+
+**IF MSG TYPE M :L**
+- If message M received from TYPE, jump to label and consume message
+- TYPE: ROBOT, MINE, STORE, BASE
+- Checks inbox, removes message if found
+- Example: `IF MSG ROBOT GO :L`
+- Max length: 15 chars (use short label!)
+
+**CLEAR**
+- Clear all received messages from inbox
+- Useful for resetting communication state
+- Example: `CLEAR`
+- Max length: 5 chars
+
+**NOP** (No Operation)
+- Max length: 5 chars
+
+**NOP** (No Operation)
+- Empty line, does nothing
+- Used for spacing or placeholder
+- Can also be completely blank
+- Max length: 3 chars
+
+---
+
+## Example Programs
+
+### Example 1: Simple Mine-to-Storage Loop
+```
+:START GOTO 5
+LOAD
+GOTO 8
+UNLOAD
+GOTO :START
+```
+Description: Robot shuttles materials from mine (ID 5) to storage (ID 8) continuously.
+
+### Example 2: Proximity-Based Mining
+```
+:START IF NEAR 1 MINE :LOAD
+U 1
+GOTO :START
+:LOAD LOAD
+IF NEAR 1 STORE :DROP
+R 5
+:DROP UNLOAD
+GOTO :START
+```
+Description: Robot searches for exactly one mine nearby, loads, then finds one storage to unload.
+
+### Example 3: Avoiding Conflicts
+```
+:START IF FULL :STORE
+IF NEAR MANY SRC :MOVE
+IF NEAR 1 SRC :LOAD
+GOTO :SEARCH
+:LOAD LOAD
+IF EMPTY :START
+:STORE IF NEAR MANY DST :MOVE
+IF NEAR 1 DST :DROP
+GOTO :SEARCH
+:DROP UNLOAD
+GOTO :START
+:MOVE R 1
+GOTO :START
+:SEARCH U 2
+L 2
+GOTO :START
+```
+Description: Robot moves away if too many sources/destinations nearby, loads only when exactly 1 adjacent.
+
+### Example 4: Directional Patrol Pattern
+```
+:START R 5
+D 3
+L 5
+U 3
+IF NEAR 1 MINE :MINE
+IF NEAR 0 MINE :START
+GOTO :WAIT
+:WAIT WAIT 2
+GOTO :START
+:MINE LOAD
+IF FULL :STORE
+GOTO :START
+:STORE R 10
+IF NEAR 1 STORE :DROP
+GOTO :STORE
+:DROP UNLOAD
+GOTO :START
+```
+Description: Robot patrols, only loads if exactly one mine found. Waits if no mines nearby.
+
+### Example 5: Coordinated Mining with Broadcast
+```
+Robot A (Miner):
+:MINE IF NEAR MINE :LOAD
+U 1
+GOTO :MINE
+:LOAD LOAD
+IF FULL :SIGNAL
+GOTO :MINE
+:SIGNAL SEND ROBOTS LOADED
+D 5
+UNLOAD
+GOTO :MINE
+
+Robot B (Hauler):
+:WAIT IF MSG ROBOT LOADED :GO
+WAIT 5
+GOTO :WAIT
+:GO U 5
+IF NEAR SRC :GET
+GOTO :GO
+:GET LOAD
+D 5
+UNLOAD
+CLEAR
+GOTO :WAIT
+```
+Description: Miner broadcasts to all robots when loaded. Haulers respond and collect.
+
+### Example 6: Emergency Stop Broadcast
+```
+:LOOP IF NEAR MINE :WORK
+IF MSG BASE STOP :END
+R 1
+GOTO :LOOP
+:WORK LOAD
+IF NEAR STORE :DROP
+GOTO :LOOP
+:DROP UNLOAD
+GOTO :LOOP
+:END STOP
+```
+Description: All robots stop when base broadcasts STOP message.
+
+### Example 7: Smart Material Transfer
+```
+:START IF EMPTY :FIND
+IF NEAR DST :DROP
+R 1
+GOTO :START
+:FIND IF NEAR SRC :GET
+L 1
+GOTO :FIND
+:GET LOAD
+GOTO :START
+:DROP UNLOAD
+GOTO :START
+```
+Description: Robot dynamically finds sources when empty, destinations when full.
+
+### Example 7: Using IF NOT Commands
+```
+:START IF NOT EMPTY :GO
+IF NEAR SRC :LOAD
+U 1
+GOTO :START
+:LOAD LOAD
+:GO IF NOT FULL :START
+IF NEAR DST :DROP
+R 1
+GOTO :GO
+:DROP UNLOAD
+GOTO :START
+```
+Description: Uses IF NOT EMPTY/FULL to simplify logic, eliminating need for separate empty/full checks.
+
+### Example 8: Directional & Area Scanning
+```
+:START IF EMPTY :SCAN
+IF U 1 STORE :UP
+IF R 1 STORE :RT
+GOTO :SCAN
+:UP U 1
+GOTO :DROP
+:RT R 1
+:DROP UNLOAD
+GOTO :START
+:SCAN IF RANGE 2 M :GO
+IF U 3 MINE :GO3
+L 1
+GOTO :SCAN
+:GO U 1
+IF NEAR MINE :LD
+GOTO :GO
+:GO3 U 3
+:LD LOAD
+GOTO :START
+```
+Description: Robot uses RANGE to detect mines in 5x5 area, then directional scan for distant mines, moves to load.
+
+---
+
+## Implementation Notes
+
+### Execution Model
+- Programs execute one command per game tick (or per second)
+- Labels are resolved at program load time (not runtime)
+- Movement commands block until destination reached
+- Directional moves (UP/DOWN/LEFT/RIGHT) are relative to current position
+- Load/unload commands block until transfer complete (1 material/second)
+- Wait commands block for specified duration
+- Jump commands execute immediately
+- Messages are delivered instantly to all matching types and stored until consumed or expired
+
+### Label System
+- Labels must start with `:` and contain uppercase letters/numbers
+- Label names are case-sensitive (`:LOOP` ≠ `:loop`)
+- Labels can be on same line as command: `:START GOTO 5`
+- Undefined labels cause program error (halt execution)
+- No forward/backward restriction - can jump anywhere
+
+### Proximity Detection System
+- IF NEAR SRC checks for adjacent objects with materials: Mine (with stored>0), Storage (with stored>0), Base (with stored>0), Robot (with inventory>0)
+- IF NEAR DST checks for adjacent objects accepting materials: Storage (not full), Base (not full), Robot (not full)
+- IF NEAR [TYPE] checks for specific object type adjacent (1 cell away in 4 directions)
+- Proximity checks return true if at least one matching object found
+- Used for dynamic pathfinding without hard-coded IDs
+
+### Messaging System
+- Each robot/mine/storage/base has inbox for received messages
+- Messages broadcast to ALL objects of specified type
+- SEND ROBOTS: broadcasts to all robots
+- SEND MINES: broadcasts to all mines
+- SEND STORES: broadcasts to all storages
+- SEND BASES: broadcasts to all bases
+- Messages stored with timestamp (game seconds) and sender type
+- Messages expire after 3600 game seconds (1 game hour)
+- IF MSG [TYPE] consumes (removes) message from specific sender type
+- CLEAR removes all messages from inbox
+- Message format: single uppercase word, max 8 characters
+
+### Error Handling
+- Undefined labels: halt program, log error
+- Movement to invalid position: log error, continue
+- Load/unload with no adjacent object: log error, continue
+- Directional move out of bounds: clamp to map edge, continue
+- Load/unload with no adjacent object: log error, continue
+- Object ID not found: log error, continue
+
+### Robot State During Execution
+- Robot status shows: RUNNING (executing line N)
+- Can be interrupted with manual commands
+- Program state saved in robot.commands_text
+- Execution pointer saved in robot._program_counter (not yet implemented)
+
+### Future Enhancements (Not Yet Implemented)
+- Variables: SET X 5, IF X > 3
+- Math operations: ADD, SUB
+- Subroutines: CALL, RETURN
+- Event triggers: ON FULL, ON ARRIVE
+- Labels instead of line numbers: :LOOP, GOTO LOOP
+
+---
+
+## Character Count Reference (max 20 chars/line)
+```
+:LOOP           (5 chars)
+GOTO 10 20      (10 chars)
+GOTO 10 20 D 2  (14 chars)
+GOTO 5          (6 chars)
+GOTO 5 D 3      (10 chars)
+GOTO :LOOP      (10 chars)
+UP 5 / U 5      (4 chars)
+DOWN 3 / D 3    (6 chars)
+LEFT 2 / L 2    (6 chars)
+RIGHT 4 / R 4   (7 chars)
+LOAD            (4 chars)
+LOAD 5          (6 chars)
+UNLOAD          (6 chars)
+UNLOAD 3        (8 chars)
+IF FULL :STORE  (14 chars)
+IF NOT FULL :GO (15 chars)
+IF EMPTY :LOAD  (14 chars)
+IF NOT EMPTY :L (15 chars)
+IF NEAR 1 SRC :LABEL (20 chars - fits!)
+IF NEAR SRC :LABEL  (18 chars)
+IF NOT NEAR SRC :GO (19 chars)
+IF NEAR 0 DST :LABEL (20 chars - fits!)
+IF NEAR MANY SRC :L (19 chars)
+IF NEAR MINE :LOAD (18 chars)
+IF NOT NEAR MINE :L (19 chars)
+IF NEAR BASE :STORE (19 chars)
+IF U 3 MINE :GOTO (17 chars)
+IF R 1 ANY :LABEL (17 chars)
+IF NOT D 2 SRC :GO (18 chars)
+IF RANGE 2 MINE :GO (19 chars)
+IF RANGE 1 ANY :L (17 chars)
+SEND ROBOTS GO  (14 chars)
+IF MSG ROBOT GO :L (18 chars)
+IF NOT MSG BASE X :L (20 chars - fits!)
+CLEAR           (5 chars)
+WAIT 10         (7 chars)
+END             (3 chars)
+STOP            (4 chars)
+```
+
+---
+
+## Syntax Grammar (EBNF-style)
+
+```
+program     ::= line*
+line        ::= [label] command | label | NOP
+label       ::= ":" IDENTIFIER
+command     ::= movement | transfer | control | utility | messaging
+movement    ::= "GOTO" target [distance] | direction NUMBER
+direction   ::= ("UP" | "U" | "DOWN" | "D" | "LEFT" | "L" | "RIGHT" | "R")
+target      ::= coords | objid | label
+coords      ::= NUMBER NUMBER
+objid       ::= NUMBER
+distance    ::= ("D" | "DISTANCE" | "DIST") NUMBER
+transfer    ::= ("LOAD" | "UNLOAD") [NUMBER]
+control     ::= conditional | jump | stop
+conditional ::= "IF" ["NOT"] condition label
+condition   ::= ("FULL" | "EMPTY") 
+             | ("NEAR" [count] proximity)
+             | (direction NUMBER scantype)
+             | ("RANGE" NUMBER scantype)
+             | ("MSG" objtype MESSAGE)
+direction   ::= ("U" | "D" | "L" | "R")
+scantype    ::= ("ANY" | "ROBOT" | "MINE" | "STORE" | "BASE" | "SRC" | "DST")
+count       ::= ("0" | "1" | "MANY")
+proximity   ::= ("SRC" | "DST" | "MINE" | "STORE" | "BASE" | "ROBOT")
+objtype     ::= ("ROBOT" | "MINE" | "STORE" | "BASE")
+jump        ::= "GOTO" label
+stop        ::= "END" | "STOP"
+messaging   ::= "SEND" broadcast MESSAGE | "CLEAR"
+broadcast   ::= ("ROBOTS" | "MINES" | "STORES" | "BASES")
+utility     ::= "WAIT" NUMBER
+IDENTIFIER  ::= [A-Z0-9]+ (max 10 chars)
+MESSAGE     ::= [A-Z]+ (max 8 chars)
+NUMBER      ::= [0-9]+
+NOP         ::= ""
+```
+
+---
+
+## Best Practices
+
+1. **Use Descriptive Labels**: `:MINE`, `:STORE`, `:WAIT` instead of `:L1`, `:L2`
+2. **Keep Labels Short**: Longer commands need shorter labels to fit 15 chars
+3. **Proximity Over IDs**: Use `IF NEAR MINE` instead of hard-coding positions
+4. **Message Naming**: Use clear, descriptive messages like `READY`, `FULL`, `STOP`
+5. **Broadcast Wisely**: Remember SEND broadcasts to ALL objects of type
+6. **Clear Messages**: Use `CLEAR` after processing messages to avoid confusion
+7. **Directional Movement**: Use U/D/L/R for relative movement, GOTO for absolute
+8. **Error Handling**: Always have `END` or `STOP` as fallback exit point
+9. **Dynamic Behavior**: Combine proximity checks with directional movement for adaptive robots
+10. **Testing**: Test with single robot before coordinating multiple robots
+
+---
+
+## Testing Recommendations
+
+1. **Basic Loop Test**: Single mine-to-storage loop (Example 1)
+2. **Proximity Test**: Dynamic source/destination finding (Example 2, 3, 7)
+3. **Directional Movement Test**: Patrol patterns with U/D/L/R (Example 4)
+4. **Label Jump Test**: Verify all labels resolve correctly
+5. **Broadcast Test**: Multiple robots receiving same message (Example 5)
+6. **Message Expiry Test**: Verify messages expire after 1 game hour
+7. **Type Filter Test**: Verify IF MSG [TYPE] filters correctly (Example 5)
+8. **Emergency Stop Test**: Base broadcasting STOP to all (Example 6)
+9. **Proximity Types Test**: Test IF NEAR MINE/STORE/BASE/ROBOT
+10. **Dynamic Pathfinding**: Robot finding sources without fixed coordinates
+
+---
+
+## Version History
+
+**v0.1** (2025-12-20): Initial syntax specification
+- Basic movement, transfer, control flow
+- Conditional execution based on full/empty states
+- Line-based jumps for control flow
+- Used # prefix for object IDs
+  
+**v0.2** (2025-12-20): Distance keyword syntax
+- Added optional distance parameter: D N or DISTANCE N
+- Removed # prefix requirement for GOTO commands
+- GOTO ID now defaults to 1 cell away (adjacent)
+- Unambiguous syntax: coordinates vs object ID determined by param count
+
+**v1.0** (2025-12-20): Label-based programming with messaging - "RoboBASIC"
+- **Official Name**: Language named **RoboBASIC** (Robo + BASIC)
+- **BREAKING CHANGE**: Removed line numbers, replaced with labels
+- Labels declared with `:NAME` syntax (max 10 chars)
+- Labels can be on same line as command
+- All jumps now use labels: `GOTO :LOOP`, `IF FULL :STORE`
+- Added messaging system: `SEND ID MSG`, `IF MSG MSG :LABEL`
+- Messages expire after 1 game hour (3600 game seconds)
+- Added `CLEAR` command to clear message inbox
+- Added `STOP` as alias for `END`
+- Updated all examples to use label-based syntax
+- Added coordinated multi-robot examples
+- Improved readability and maintainability
+
+**v1.1** (2025-12-20): Proximity-based and broadcast messaging
+- **BREAKING CHANGE**: Removed `IF #ID FULL/EMPTY` - no direct object state queries
+- **BREAKING CHANGE**: `SEND ID MSG` changed to `SEND TYPE MSG` (broadcast to type)
+- **BREAKING CHANGE**: `IF MSG MSG` changed to `IF MSG TYPE MSG` (filter by sender type)
+- Added proximity detection: `IF NEAR SRC`, `IF NEAR DST`
+- Added type proximity: `IF NEAR MINE/STORE/BASE/ROBOT`
+- Added directional movement: `UP N`, `DOWN N`, `LEFT N`, `RIGHT N` (and U/D/L/R shortcuts)
+- Broadcast types: ROBOTS, MINES, STORES, BASES
+- Message sender types: ROBOT, MINE, STORE, BASE
+- Emphasis on dynamic, proximity-based behavior over hard-coded IDs
+- All examples updated to showcase new proximity and broadcast features
+
+**v1.2** (2025-12-20): Negation with IF NOT
+- Added `IF NOT` to all conditional commands
+- `IF NOT FULL :LABEL` - jump if inventory NOT full
+- `IF NOT EMPTY :LABEL` - jump if inventory NOT empty
+- `IF NOT NEAR TYPE :LABEL` - jump if NOT adjacent to type
+- `IF NOT MSG TYPE MSG :L` - jump if message NOT in inbox
+- Simplifies logic by eliminating need for separate positive/negative branches
+- Note: Many IF NOT variants exceed 15 character limit (use short labels!)
+- Added Example 7 demonstrating IF NOT commands
+
+**v1.3** (2025-12-20): Directional and area scanning
+- Added `IF dir dist type :LABEL` - scan specific direction and distance
+- Added `IF RANGE dist type :LABEL` - scan area within Manhattan distance radius
+- Directions: U/D/L/R (up/down/left/right)
+- Distance: 1-5 cells (directional) or 1-5 radius (area)
+- RANGE 1 = 3x3 area, RANGE 2 = 5x5 area, RANGE 3 = 7x7, etc.
+- Types: ANY, ROBOT, MINE, STORE, BASE, SRC, DST
+- Example: `IF U 3 MINE :GO` - check if mine 3 cells up
+- Example: `IF RANGE 2 M :L` - check if mine in 5x5 area (M=MINE shorthand)
+- Enables look-ahead planning and area awareness
+- Works with `IF NOT` for negative checks
+- Updated Example 8 demonstrating both scanning types
+
+**v2.0** (2025-12-20): Increased line width to 20 characters
+- **BREAKING CHANGE**: Editor line width increased from 15 to 20 characters
+- All command variants now fit comfortably within limit
+- IF NOT commands with full labels now work (e.g., `IF NOT NEAR SRC :GOTO`)
+- Directional scanning with descriptive labels (e.g., `IF U 3 MINE :GOTO`)
+- RANGE commands with better label readability
+- Improved code readability with longer, more descriptive label names
+- Most commands that previously exceeded 15 chars now fit in 20 chars
+- Examples updated to use more descriptive labels where applicable
+
+- Enables look-ahead planning and long-range detection
+- Works with `IF NOT` for negative checks
+- Added Example 8 demonstrating directional scanning

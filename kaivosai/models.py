@@ -109,11 +109,17 @@ class Robot:
     capacity: int = 5
     inventory: int = 0
     name: str = "Robot"
+    commands_text: list = None  # 10 lines, max 15 chars each
     _loading_from: Optional[object] = None
     _loading_amount: Optional[int] = None
     _unloading_to: Optional[object] = None
     _unloading_amount: Optional[int] = None
     _last_transfer_time: float = 0.0
+    
+    def __post_init__(self):
+        """Initialize commands_text if not provided."""
+        if self.commands_text is None:
+            self.commands_text = [''] * 10
 
     def move_to(self, target: Position):
         self.pos = target
