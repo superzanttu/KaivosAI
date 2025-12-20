@@ -493,7 +493,12 @@ def create_object(obj_type: str, id: Optional[int] = None, name: str = None, **k
     """
     t = obj_type.lower()
     if t == 'robot':
-        return Robot(id=id, pos=kwargs.get('pos', (0, 0)), capacity=kwargs.get('capacity', 5))
+        return Robot(
+            id=id,
+            pos=kwargs.get('pos', (0, 0)),
+            capacity=kwargs.get('capacity', 5),
+            commands_text=kwargs.get('commands_text', None),
+        )
     if t == 'mine':
         return Mine(id=id, name=name or 'Mine', pos=kwargs.get('pos', (0, 0)), 
                     durability=kwargs.get('durability', 10), 

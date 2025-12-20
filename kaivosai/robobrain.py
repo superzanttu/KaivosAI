@@ -58,12 +58,16 @@ class RoboBASICParser:
         errors = []
         
         for line_num, line in enumerate(lines, start=1):
+            # Strip comments (anything after ;)
+            if ';' in line:
+                line = line[:line.index(';')]
+            
             # Skip empty lines
             if not line or not line.strip():
                 parsed_lines.append({'line_num': line_num, 'label': None, 'command': None, 'args': []})
                 continue
             
-            # Check line length
+            # Check line length (before comment)
             if len(line) > RoboBASICParser.MAX_LINE_LENGTH:
                 errors.append(f"Line {line_num}: Too long ({len(line)} > {RoboBASICParser.MAX_LINE_LENGTH} chars)")
                 parsed_lines.append({'line_num': line_num, 'label': None, 'command': None, 'args': []})
@@ -396,9 +400,13 @@ class RoboBRAINExecutor:
             return "Program not running"
         
         # Check if program counter is valid
-        if robot._program_counter >= len(robot._parsed_program):
+        if not robot._parsed_program:
             robot._program_running = False
-            return "Program ended (reached end)"
+            return "Program ended (empty program)"
+
+        if robot._program_counter >= len(robot._parsed_program):
+            # Wrap to start when reaching the end to loop the program
+            robot._program_counter = 0
         
         # Get current line
         line = robot._parsed_program[robot._program_counter]

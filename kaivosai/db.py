@@ -79,6 +79,7 @@ def init_game_db(conn: sqlite3.Connection):
             durability INTEGER,
             bank INTEGER,
             inventory INTEGER,
+            commands_text TEXT,
             UNIQUE(x,y)
         )
         """
@@ -116,6 +117,12 @@ def init_game_db(conn: sqlite3.Connection):
     )
     conn.commit()
 
+    # Ensure commands_text column exists for persisting robot code
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(game_objects)").fetchall()}
+    if 'commands_text' not in columns:
+        conn.execute("ALTER TABLE game_objects ADD COLUMN commands_text TEXT")
+        conn.commit()
+
 
 def persist_object(conn: sqlite3.Connection, obj):
     """Save or update game object in database (UPSERT operation).
@@ -147,7 +154,16 @@ def persist_object(conn: sqlite3.Connection, obj):
         'durability': getattr(obj, 'durability', None),
         'bank': getattr(obj, 'bank', None),
         'inventory': getattr(obj, 'inventory', None),
+        'commands_text': None,
     }
+
+    # Serialize robot program code for persistence
+    if obj_type == 'robot':
+        code_lines = getattr(obj, 'commands_text', None)
+        if isinstance(code_lines, list):
+            vals['commands_text'] = '\n'.join(code_lines)
+        elif isinstance(code_lines, str):
+            vals['commands_text'] = code_lines
 
     # Use UPSERT keyed on coordinates so coordinates are authoritative.
     # If object has an ID, use it; otherwise let DB auto-assign
@@ -156,8 +172,8 @@ def persist_object(conn: sqlite3.Connection, obj):
             # Insert with explicit ID
             cur = conn.execute(
                 """
-                INSERT INTO game_objects (id, type, name, x, y, capacity, stored, durability, bank, inventory)
-                VALUES (:id, :type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory)
+                INSERT INTO game_objects (id, type, name, x, y, capacity, stored, durability, bank, inventory, commands_text)
+                VALUES (:id, :type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory, :commands_text)
                 ON CONFLICT(x,y) DO UPDATE SET
                     id=excluded.id,
                     type=excluded.type,
@@ -166,7 +182,8 @@ def persist_object(conn: sqlite3.Connection, obj):
                     stored=excluded.stored,
                     durability=excluded.durability,
                     bank=excluded.bank,
-                    inventory=excluded.inventory
+                    inventory=excluded.inventory,
+                    commands_text=excluded.commands_text
                 """,
                 {**vals, 'id': obj_id},
             )
@@ -174,8 +191,8 @@ def persist_object(conn: sqlite3.Connection, obj):
             # Let DB auto-assign ID
             cur = conn.execute(
                 """
-                INSERT INTO game_objects (type, name, x, y, capacity, stored, durability, bank, inventory)
-                VALUES (:type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory)
+                INSERT INTO game_objects (type, name, x, y, capacity, stored, durability, bank, inventory, commands_text)
+                VALUES (:type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory, :commands_text)
                 ON CONFLICT(x,y) DO UPDATE SET
                     type=excluded.type,
                     name=excluded.name,
@@ -183,7 +200,8 @@ def persist_object(conn: sqlite3.Connection, obj):
                     stored=excluded.stored,
                     durability=excluded.durability,
                     bank=excluded.bank,
-                    inventory=excluded.inventory
+                    inventory=excluded.inventory,
+                    commands_text=excluded.commands_text
                 """,
                 vals,
             )
@@ -207,12 +225,12 @@ def persist_object(conn: sqlite3.Connection, obj):
                 conn.execute("DELETE FROM game_objects WHERE x = ? AND y = ?", (vals['x'], vals['y']))
             if obj_id is not None:
                 cur = conn.execute(
-                    "INSERT INTO game_objects (id, type, name, x, y, capacity, stored, durability, bank, inventory) VALUES (:id, :type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory)",
+                    "INSERT INTO game_objects (id, type, name, x, y, capacity, stored, durability, bank, inventory, commands_text) VALUES (:id, :type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory, :commands_text)",
                     {**vals, 'id': obj_id},
                 )
             else:
                 cur = conn.execute(
-                    "INSERT INTO game_objects (type, name, x, y, capacity, stored, durability, bank, inventory) VALUES (:type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory)",
+                    "INSERT INTO game_objects (type, name, x, y, capacity, stored, durability, bank, inventory, commands_text) VALUES (:type, :name, :x, :y, :capacity, :stored, :durability, :bank, :inventory, :commands_text)",
                     vals,
                 )
             conn.commit()

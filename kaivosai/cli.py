@@ -6,7 +6,7 @@ Main user interface providing:
     - Colored map display (robots, mines, storage, bases, rocks)
     - Object list with inventory/material status
     - Recent events display
-    - RoboBASIC program editor with syntax validation
+    - RoboBASIC code editor with syntax validation
     - Game clock display (Week/Day/Time format)
     - Auto-refresh every 0.5s for real-time updates
     
@@ -16,11 +16,11 @@ Key components:
     - build_map_display(): Colored ASCII map with legend
     - build_object_list(): Object status with materials/inventory
     - build_events_display(): Recent game events log
-    - show_command_editor(): Robot program editor with validation
+    - show_command_editor(): Robot code editor with validation
     
 Command categories:
     - Object management: create, delete, move
-    - Robot control: goto, load, unload, program
+    - Robot control: goto, load, unload, code/start/pause
     - Map operations: show, list, terrain, demo, reset
     - System: help, version, quit, pause, resume
     
@@ -54,6 +54,7 @@ COMMAND_ALIASES = {
     # Objects
     'r': 'robot',
     'rob': 'robot',
+    'bot': 'robot',
     'm': 'mine',
     's': 'storage',
     'stor': 'storage',
@@ -99,6 +100,45 @@ COMMAND_ALIASES = {
     'check': 'inspect',
 }
 
+# Robot-specific action aliases (contextual, applied only after 'robot' command)
+ROBOT_ACTION_ALIASES = {
+    # Movement
+    'g': 'goto',
+    'go': 'goto',
+    'move': 'goto',
+    'm': 'goto',
+    'walk': 'goto',
+    # Load/Unload
+    'l': 'load',
+    'load': 'load',
+    'take': 'load',
+    'pickup': 'load',
+    'get': 'load',
+    'u': 'unload',
+    'ul': 'unload',
+    'unload': 'unload',
+    'dump': 'unload',
+    'drop': 'unload',
+    'put': 'unload',
+    'store': 'unload',
+    # Program control
+    'c': 'code',
+    'code': 'code',
+    'program': 'code',
+    'prg': 'code',
+    'prog': 'code',
+    'edit': 'code',
+    's': 'start',
+    'start': 'start',
+    'run': 'start',
+    'execute': 'start',
+    'p': 'pause',
+    'pause': 'pause',
+    'halt': 'pause',
+    'stop': 'pause',
+    'end': 'pause',
+}
+
 # Available commands for tab completion
 COMPLETIONS = [
     'robot', 'mine', 'storage', 'base', 'rock', 'object',
@@ -113,7 +153,7 @@ class CLIController:
 
     Provides the same command parsing and handler logic used by the TUI,
     but without Urwid UI dependencies. Accepts injected map/clock/conn and
-    optional program editor callback for editing commands when available.
+    optional code editor callback for editing commands when available.
     """
 
     def __init__(self, game_map: Map, clock: GameClock, conn, show_command_editor=None):
@@ -130,9 +170,9 @@ class CLIController:
                 "• robot ID goto OBJ_ID [d N] (r ID g OBJ_ID [d N]) - move robot near object (stop N cells away)\n"
                 "• robot ID load [amount] (r ID l [N]) - load N materials from adjacent object\n"
                 "• robot ID unload [amount] (r ID u [N]) - unload N materials to adjacent object\n"
-                "• robot ID program (r ID p) - edit robot program (F2=save, ESC=cancel)\n"
-                "• robot ID start (r ID start) - start executing robot program\n"
-                "• robot ID stop (r ID stop) - stop executing robot program\n"
+                "• robot ID code (r ID c) - open robot code editor (F2=save, ESC=cancel)\n"
+                "• robot ID start (r ID s) - start executing robot code\n"
+                "• robot ID pause (r ID p) - pause robot code execution\n"
                 "\n"
                 "OBJECT MANAGEMENT:\n"
                 "• create TYPE X Y (c TYPE X Y) - create object at position (types: robot, mine, storage, base)\n"
@@ -141,12 +181,10 @@ class CLIController:
                 "• inspect X Y - inspect position (show what's there)\n"
                 "\n"
                 "MAP OPERATIONS:\n"
-                "• map show (map/m) - show map (displayed in left panel)\n"
-                "• map list (map ls) - show all objects (displayed in right panel)\n"
                 "• map terrain [density] [size] (map t [D] [S]) - generate terrain\n"
                 "  density: 0.0-1.0 (default 0.05), size: cluster size 1+ (default 3)\n"
-                "• map demo (map demo) - add 4 demo objects at random positions\n"
-                "• map reset (map reset) - clear map and reset clock\n"
+                "• map demo - add 4 demo objects at random positions\n"
+                "• map reset - clear map and reset clock\n"
                 "\n"
                 "SYSTEM COMMANDS:\n"
                 "• system pause - pause clock (stops production/consumption)\n"
@@ -224,10 +262,6 @@ class CLIController:
             return 'See Map panel'
         sub = parts[1]
 
-        if sub == 'show':
-            return 'See Map panel'
-        if sub == 'list':
-            return 'See Objects panel'
         if sub == 'terrain':
             density = 0.05
             cluster_size = 3
@@ -295,7 +329,7 @@ class CLIController:
                 self.clock.reset()
             return 'Everything reset: map cleared, clock reset'
 
-        return f"Unknown map command: {sub}. Try: show, list, terrain, demo, reset"
+        return f"Unknown map command: {sub}. Try: terrain, demo, reset"
 
     def _handle_create(self, parts: list) -> str:
         from .models import create_object
@@ -478,19 +512,28 @@ class CLIController:
 
         action = parts[2] if len(parts) >= 3 else None
 
-        if action in ('program', 'prg', 'prog'):
+        if action in ('code', 'program', 'prg', 'prog', 'edit'):
             if self.show_command_editor:
                 self.show_command_editor(robot)
-                return f'Editing commands for {robot.name}'
+                return f'Editing code for {robot.name}'
             return 'Program editor unavailable in this mode'
 
-        if action in ('start', 'run', 'execute', 'go'):
+        if action in ('start', 'run', 'execute', 's'):
             parsed, labels, errors = RoboBASICParser.parse_program(robot.commands_text)
 
             if errors:
                 error_msg = '; '.join(errors[:3])
                 return f'Cannot start program: {error_msg}'
 
+            # Reset execution state so starting always begins from line 0 and
+            # cancels any pending movement or transfer.
+            robot._move_path = None
+            robot._move_target = None
+            robot._move_stop_distance = 0
+            robot._loading_from = None
+            robot._loading_amount = None
+            robot._unloading_to = None
+            robot._unloading_amount = None
             robot._parsed_program = parsed
             robot._program_labels = labels
             robot._program_running = True
@@ -501,20 +544,20 @@ class CLIController:
                 persist_object(self.conn, robot)
                 game_seconds = self.clock.seconds if self.clock else 0
                 log_event(self.conn, game_seconds, 'robot_program',
-                         f'Robot {rid} program started', robot, robot.pos)
+                         f'Robot {rid} code started', robot, robot.pos)
 
-            return f'Robot {rid} program started (RoboBRAIN active)'
+            return f'Robot {rid} code started (RoboBRAIN active)'
 
-        if action in ('stop', 'halt', 'pause', 'end'):
+        if action in ('pause', 'halt', 'stop', 'end', 'p'):
             robot._program_running = False
 
             if self.conn:
                 persist_object(self.conn, robot)
                 game_seconds = self.clock.seconds if self.clock else 0
                 log_event(self.conn, game_seconds, 'robot_program',
-                         f'Robot {rid} program stopped', robot, robot.pos)
+                         f'Robot {rid} code paused', robot, robot.pos)
 
-            return f'Robot {rid} program stopped'
+            return f'Robot {rid} code paused'
 
         return 'Unknown program action'
 
@@ -619,7 +662,7 @@ class CLIController:
                 return self._handle_robot_load(robot, rid, parts)
             if action in ('unload', 'dump', 'drop', 'put', 'store'):
                 return self._handle_robot_unload(robot, rid, parts)
-            if action in ('program', 'prg', 'prog', 'start', 'run', 'execute', 'go', 'stop', 'halt', 'pause', 'end'):
+            if action in ('code', 'program', 'prg', 'prog', 'edit', 'start', 'run', 'execute', 's', 'pause', 'halt', 'stop', 'end', 'p'):
                 return self._handle_robot_program(robot, rid, parts)
             if action in ('go', 'goto', 'g', 'move', 'm', 'walk'):
                 return self._handle_robot_movement(robot, rid, parts)
@@ -627,7 +670,7 @@ class CLIController:
         if len(parts) >= 4:
             return self._handle_robot_movement(robot, rid, parts)
 
-        return 'Usage: robot ID <load|unload|program|start|stop|goto X Y>'
+        return 'Usage: robot ID <load|unload|code|start|pause|goto X Y>'
 
     def process_command(self, cmd_line: str):
         if not cmd_line:
@@ -759,7 +802,26 @@ def expand_aliases(parts: List[str]) -> List[str]:
     Note:
         Preserves unknown tokens unchanged. See COMMAND_ALIASES for mappings.
     """
-    return [COMMAND_ALIASES.get(p, p) for p in parts]
+    if not parts:
+        return []
+
+    first = COMMAND_ALIASES.get(parts[0], parts[0])
+
+    # Apply context-aware aliases for robot commands so short forms like
+    # "r ID c" map to "robot ID code" without colliding with create.
+    if first in ('robot', 'bot', 'r', 'rob'):
+        normalized = ['robot']
+
+        if len(parts) >= 2:
+            normalized.append(parts[1])
+
+        for token in parts[2:]:
+            normalized.append(ROBOT_ACTION_ALIASES.get(token, token))
+
+        return normalized
+
+    # Default path: expand each token independently
+    return [first] + [COMMAND_ALIASES.get(p, p) for p in parts[1:]]
 
 
 def run_urwid_tui(game_map: Map, clock: GameClock, conn):
@@ -847,9 +909,11 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
     
     # Editor state: track which robot's commands are being edited
     editor_state = {'robot': None, 'overlay': None}
+    # Keep reference to the main unhandled input handler so debug dialogs can restore it
+    main_unhandled_input = None
     
     def show_command_editor(robot):
-        """Show modal RoboBASIC program editor for robot.
+        """Show modal RoboBASIC code editor for robot.
         
         Args:
             robot: Robot object to edit program for
@@ -866,9 +930,9 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         if editor_state['robot'] is not None:
             return  # Already editing another robot
         
-        # Check if robot program is running
+        # Check if robot code is running
         if hasattr(robot, '_program_running') and robot._program_running:
-            status_text.set_text(f'Cannot edit: Robot {robot.id} program is running. Stop it first with: robot {robot.id} stop')
+            status_text.set_text(f'Cannot edit: Robot {robot.id} code is running. Pause it first with: robot {robot.id} pause')
             return
         
         editor_state['robot'] = robot
@@ -1180,6 +1244,10 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                 
                 # Check robot state (loading/unloading/moving/idle)
                 state = ''
+                # Show active program state even if robot is otherwise idle
+                if getattr(o, '_program_running', False):
+                    state = ' CODE'
+
                 if hasattr(o, '_loading_from') and o._loading_from is not None:
                     state = ' LOADING'
                     color = 'robot'  # Active color
@@ -1188,7 +1256,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                     color = 'robot'  # Active color
                 elif hasattr(o, '_move_target') and o._move_target is not None:
                     state = ' MOVING'
-                else:
+                elif not state:
                     state = ' IDLE'
                 
                 markup.append((color, f"R {oid:2d} {name:10s}"))
@@ -1239,17 +1307,22 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                 
             elif isinstance(o, Base):
                 stored = o.stored
+                capacity = 20  # Base default capacity (not stored in model, but standard)
+                pct = int(stored / capacity * 10) if capacity > 0 else 0
                 
-                if stored > 0:
-                    color = 'base'
-                    status = 'ACTIVE'
-                else:
+                if stored >= capacity:
+                    color = 'base_full'
+                    bar = '[' + '=' * 10 + ']'
+                elif stored == 0:
                     color = 'base_empty'
-                    status = 'IDLE'
+                    bar = '[' + '.' * 10 + ']'
+                else:
+                    color = 'base'
+                    bar = '[' + '=' * pct + '.' * (10 - pct) + ']'
                 
                 markup.append((color, f"B {oid:2d} {name:10s}"))
                 markup.append(('dim', f" @({x:2d},{y:2d}) "))
-                markup.append((color, f"{status} mat:{stored}"))
+                markup.append((color, f"{bar} {stored}/{capacity}"))
                 markup.append('\n')
         
         return markup
@@ -1278,8 +1351,19 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             if not events:
                 return [('dim', 'No events yet')]
             
-            markup = []
+            # Collapse consecutive identical state events to avoid spam (same type/id/message)
+            collapsed = []
             for event in events:
+                key = (event[3], event[1], event[4])  # event_type, object_id, message
+                if collapsed and collapsed[-1]['key'] == key:
+                    collapsed[-1]['count'] += 1
+                else:
+                    collapsed.append({'data': event, 'count': 1, 'key': key})
+
+            markup = []
+            for item in collapsed:
+                event = item['data']
+                repeat_count = item['count']
                 timestamp, obj_id, obj_type, event_type, message, x, y = event
                 # Format timestamp as W<n>D<n>HH:MM:SS
                 weeks, remainder = divmod(int(timestamp), 7 * 24 * 3600)
@@ -1288,19 +1372,19 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                 minutes, seconds = divmod(remainder, 60)
                 time_str = f"W{weeks+1}D{days+1}{hours:02d}:{minutes:02d}:{seconds:02d}"
                 
-                # Determine event color and ASCII symbol based on type
+                # Determine event severity label and color for readability
                 if event_type in ('robot_arrived', 'robot_loaded', 'robot_unloaded', 'base_supplied'):
                     event_color = 'event_good'
-                    symbol = '+'
+                    severity = 'OK'
                 elif event_type in ('robot_blocked', 'robot_empty', 'mine_empty', 'storage_empty', 'base_empty'):
                     event_color = 'event_bad'
-                    symbol = '!'
+                    severity = 'ISSUE'
                 elif event_type in ('robot_full', 'mine_full', 'storage_full'):
                     event_color = 'warning'
-                    symbol = '*'
+                    severity = 'WARN'
                 else:
                     event_color = 'event_neutral'
-                    symbol = '-'
+                    severity = 'INFO'
                 
                 # Add object type indicator using same letters as map
                 if obj_type == 'robot':
@@ -1319,35 +1403,35 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                     obj_letter = ''
                     obj_color = 'dim'
                 
-                # Shorten message significantly to fit in limited space
-                # Remove redundant words and coordinates to make it compact
-                msg = message
-                # Remove "at (X,Y)" coordinate info (redundant with map)
+                # Clean up message while keeping it readable
                 import re
-                msg = re.sub(r'\s*at\s*\(\d+,\d+\)', '', msg)
-                # Remove "started" prefix for brevity
-                msg = msg.replace('started moving to', '→')
-                msg = msg.replace('started loading from', '←')
-                msg = msg.replace('started unloading to', '→')
-                msg = msg.replace('finished loading from', '←done')
-                msg = msg.replace('finished unloading to', '→done')
-                msg = msg.replace('arrived', '✓')
-                # Shorten common words
-                msg = msg.replace('Robot', 'R')
-                msg = msg.replace('Storage', 'S')
-                msg = msg.replace('Iron Mine', 'M')
-                msg = msg.replace('Mine', 'M')
-                msg = msg.replace('Base', 'B')
+                msg = re.sub(r'\s*at\s*\(\d+,\d+\)', '', message)
+                msg = msg.replace('started moving to', 'moving to')
+                msg = msg.replace('started loading from', 'loading from')
+                msg = msg.replace('started unloading to', 'unloading to')
+                msg = msg.replace('finished loading from', 'loaded from')
+                msg = msg.replace('finished unloading to', 'unloaded to')
                 msg = msg.replace('inventory', 'inv')
-                # Truncate if still too long
-                if len(msg) > 28:
-                    msg = msg[:25] + '...'
-                
+                msg = msg.strip()
+                if len(msg) > 48:
+                    msg = msg[:45] + '...'
+
+                if repeat_count > 1:
+                    msg = f"{msg} x{repeat_count}"
+
+                obj_label = obj_letter
+                if obj_label and obj_id:
+                    obj_label = f"{obj_label}{obj_id}"
+                elif obj_label:
+                    obj_label = f"{obj_label}"  # keep type even if id missing
+                else:
+                    obj_label = '--'
+
                 markup.append(('event_time', time_str))
                 markup.append(' ')
-                markup.append((event_color, symbol))
-                if obj_letter:
-                    markup.append((obj_color, obj_letter))
+                markup.append((event_color, f"{severity:<5}"))
+                markup.append(' ')
+                markup.append((obj_color, f"{obj_label:<4}"))
                 markup.append(' ')
                 markup.append((event_color, msg))
                 markup.append('\n')
@@ -1504,7 +1588,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             # ESC or any key: close dialog
             if key == 'esc' or key:
                 loop.widget = main_pile
-                loop.unhandled_input = main_unhandled_input
+                loop.unhandled_input = main_unhandled_input or handle_input
                 return True
         
         loop.widget = overlay
@@ -1930,12 +2014,12 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         return f'Robot {rid} started unloading {transfer_amount} material to {target_name} (1/s). Inventory: {robot.inventory}/{robot.capacity}'
     
     def _handle_robot_program(robot: 'Robot', rid: int, parts: list) -> str:
-        """Handle robot program editing and execution.
+        """Handle robot code editing and execution.
         
         Args:
             robot: Robot object
             rid: Robot ID for logging
-            parts: Command parts (parts[2] determines action: program/start/stop)
+            parts: Command parts (parts[2] determines action: code/start/pause)
             
         Returns:
             Status message
@@ -1945,18 +2029,26 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         
         action = parts[2] if len(parts) >= 3 else None
         
-        # Edit program
-        if action in ('program', 'prg', 'prog'):
+        # Edit code (auto-pause if running)
+        if action in ('code', 'program', 'prg', 'prog', 'edit', 'c'):
+            if getattr(robot, '_program_running', False):
+                robot._program_running = False
+                if conn:
+                    persist_object(conn, robot)
+                    game_seconds = clock.seconds if clock else 0
+                    log_event(conn, game_seconds, 'robot_program',
+                              f'Robot {rid} code paused for editing', robot, robot.pos)
+                status_text.set_text(f'Robot {rid} code paused for editing')
             show_command_editor(robot)
-            return f'Editing commands for {robot.name}'
+            return f'Editing code for {robot.name}'
         
-        # Start program execution
-        if action in ('start', 'run', 'execute', 'go'):
+        # Start code execution
+        if action in ('start', 'run', 'execute', 's'):
             parsed, labels, errors = RoboBASICParser.parse_program(robot.commands_text)
             
             if errors:
                 error_msg = '; '.join(errors[:3])
-                return f'Cannot start program: {error_msg}'
+                return f'Cannot start code: {error_msg}'
             
             robot._parsed_program = parsed
             robot._program_labels = labels
@@ -1968,21 +2060,21 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                 persist_object(conn, robot)
                 game_seconds = clock.seconds if clock else 0
                 log_event(conn, game_seconds, 'robot_program', 
-                         f'Robot {rid} program started', robot, robot.pos)
+                         f'Robot {rid} code started', robot, robot.pos)
             
-            return f'Robot {rid} program started (RoboBRAIN active)'
+            return f'Robot {rid} code started (RoboBRAIN active)'
         
-        # Stop program execution
-        if action in ('stop', 'halt', 'pause', 'end'):
+        # Pause code execution
+        if action in ('pause', 'halt', 'stop', 'end', 'p'):
             robot._program_running = False
             
             if conn:
                 persist_object(conn, robot)
                 game_seconds = clock.seconds if clock else 0
                 log_event(conn, game_seconds, 'robot_program', 
-                         f'Robot {rid} program stopped', robot, robot.pos)
+                         f'Robot {rid} code paused', robot, robot.pos)
             
-            return f'Robot {rid} program stopped'
+            return f'Robot {rid} code paused'
         
         return 'Unknown program action'
     
@@ -2080,7 +2172,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         Delegates to specialized handlers for different robot operations:
         - load: retrieve materials from adjacent objects
         - unload: deposit materials to adjacent objects
-        - program/start/stop: manage RoboBASIC program execution
+        - code/start/pause: manage RoboBASIC code execution
         - goto/movement: command pathfinding and movement
         
         Args:
@@ -2115,7 +2207,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                 return _handle_robot_load(robot, rid, parts)
             elif action in ('unload', 'dump', 'drop', 'put', 'store'):
                 return _handle_robot_unload(robot, rid, parts)
-            elif action in ('program', 'prg', 'prog', 'start', 'run', 'execute', 'go', 'stop', 'halt', 'pause', 'end'):
+            elif action in ('code', 'program', 'prg', 'prog', 'edit', 'start', 'run', 'execute', 's', 'pause', 'halt', 'stop', 'end', 'p'):
                 return _handle_robot_program(robot, rid, parts)
             elif action in ('go', 'goto', 'g', 'move', 'm', 'walk'):
                 return _handle_robot_movement(robot, rid, parts)
@@ -2124,7 +2216,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         if len(parts) >= 4:
             return _handle_robot_movement(robot, rid, parts)
         
-        return 'Usage: robot ID <load|unload|program|start|stop|goto X Y>'
+        return 'Usage: robot ID <load|unload|code|start|pause|goto X Y>'
     
     def _build_help_text() -> str:
         """Build help text for command reference.
@@ -2139,9 +2231,9 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                 "• robot ID goto OBJ_ID [d N] (r ID g OBJ_ID [d N]) - move robot near object (stop N cells away)\n"
                 "• robot ID load [amount] (r ID l [N]) - load N materials from adjacent object\n"
                 "• robot ID unload [amount] (r ID u [N]) - unload N materials to adjacent object\n"
-                "• robot ID program (r ID p) - edit robot program (F2=save, ESC=cancel)\n"
-                "• robot ID start (r ID start) - start executing robot program\n"
-                "• robot ID stop (r ID stop) - stop executing robot program\n"
+                "• robot ID code (r ID c) - edit robot code (F2=save, ESC=cancel)\n"
+                "• robot ID start (r ID s) - start executing robot code\n"
+                "• robot ID pause (r ID p) - pause robot code execution\n"
                 "\n"
                 "OBJECT MANAGEMENT:\n"
                 "• create TYPE X Y (c TYPE X Y) - create object at position (types: robot, mine, storage, base)\n"
@@ -2271,9 +2363,13 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                 status_text.set_text(f'> {cmd_line}\nError: {e}')
         elif key in ('esc',):
             raise urwid.ExitMainLoop()
+
+    # Store default unhandled input handler for restoring after modal dialogs
+    main_unhandled_input = handle_input
     
     loop = urwid.MainLoop(main_pile, palette=palette, unhandled_input=handle_input)
-    refresh_display(loop)
+    # Schedule immediate refresh after loop starts (0.01s delay ensures loop is running)
+    loop.set_alarm_in(0.01, refresh_display)
     loop.run()
 
 

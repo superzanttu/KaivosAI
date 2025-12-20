@@ -144,10 +144,10 @@ class CLIControllerTests(unittest.TestCase):
         # Valid minimal program starts
         robot.commands_text = ["END"] + [""] * 9
         msg2 = self.controller.process_command(f"robot {robot.id} run")
-        self.assertIn("program started", msg2)
+        self.assertIn("code started", msg2)
         # Stop
         msg3 = self.controller.process_command(f"robot {robot.id} halt")
-        self.assertIn("program stopped", msg3)
+        self.assertIn("code paused", msg3)
 
     def test_system_optimize_ids(self):
         # Create objects with non-sequential IDs

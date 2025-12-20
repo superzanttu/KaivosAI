@@ -9,6 +9,7 @@
 
 ## Päivitykset
 
+- Robottikomentojen syntaksi päivitetty: `code`/`start`/`pause` (lyhyet `r ID c/s/p`), dokumentaatio ja aliakset linjassa.
 - Lisätty kattavat CLI-testit robottikomennoille: `load/unload`, liike koordinaateilla ja objektin ID:llä (distance), ohjelman käynnistys/pysäytys, alias-polut (`r`, `bot`).
 - Lisätty yleiset CLI-testit: create/delete/move/inspect/system/map -variantit, alias-käyttäytyminen (top-level `show`), virhepolut ja oletusmäärät.
 - README päivitetty nykyiseen komentoyhteensopivuuteen ja testaus/coverage-ohjeisiin.

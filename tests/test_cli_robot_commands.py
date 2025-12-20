@@ -70,18 +70,18 @@ class CLIRobotCommandsTests(unittest.TestCase):
         msg2 = self.controller.process_command(f"robot {r.id} goto {mine.id} distance 2")
         self.assertIn("stopping 2 cells away", msg2)
 
-    def test_robot_program_editor_unavailable_and_start_stop_synonyms(self):
+    def test_robot_code_editor_unavailable_and_start_pause_synonyms(self):
         r = self._ensure_robot(1, 1)
         # Program editor unavailable in headless mode
-        msg_edit = self.controller.process_command(f"robot {r.id} program")
+        msg_edit = self.controller.process_command(f"robot {r.id} code")
         self.assertIn("Program editor unavailable", msg_edit)
         # Start via synonyms
         r.commands_text = ["END"] + [""] * 9
         msg_start = self.controller.process_command(f"robot {r.id} execute")
-        self.assertIn("program started", msg_start)
-        # Stop via 'end' synonym
+        self.assertIn("code started", msg_start)
+        # Pause via 'end' synonym
         msg_stop = self.controller.process_command(f"robot {r.id} end")
-        self.assertIn("program stopped", msg_stop)
+        self.assertIn("code paused", msg_stop)
 
     def test_robot_alias_handlers_r_and_bot(self):
         r = self._ensure_robot(2, 2)

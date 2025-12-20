@@ -46,7 +46,10 @@ KaivosAI accepts natural-language style commands. Below are the supported forms 
 - `robot ID goto OBJ_ID [distance N]` — move adjacent to object by ID (defaults to 1 cell away if no distance)
 - `robot ID load [N]` — start loading N materials from an adjacent source (Mine/Storage/Base/Robot); if omitted, loads until full
 - `robot ID unload [N]` — start unloading N materials to an adjacent destination (Storage/Base/Robot); if omitted, unloads all
-- Aliases: `r`, `bot`, `go`, `move`, `g`, `take`, `drop`
+- `robot ID code` — open RoboBASIC editor for the robot (aliases: `r ID c`, `code`, `prg`, `prog`)
+- `robot ID start` — start executing the robot code (aliases: `r ID s`, `start`, `run`, `execute`)
+- `robot ID pause` — pause robot code execution (aliases: `r ID p`, `pause`, `stop`, `halt`)
+- Aliases: `r`, `bot`, `go`, `move`, `g`, `take`, `drop` (plus context-aware `c`/`s`/`p` after `robot ID`)
 
 ### Viewing
 - `map show` — see map panel

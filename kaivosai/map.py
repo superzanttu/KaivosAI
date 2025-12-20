@@ -76,7 +76,14 @@ class Map:
             for r in rows:
                 t = r['type']
                 pos = (r['x'], r['y'])
-                obj = create_object(t, id=r['id'], name=r['name'], pos=pos, capacity=r['capacity'], durability=r['durability'])
+                obj = create_object(
+                    t,
+                    id=r['id'],
+                    name=r['name'],
+                    pos=pos,
+                    capacity=r['capacity'],
+                    durability=r['durability'],
+                )
                 # set extra fields
                 if isinstance(obj, Storage):
                     obj.stored = r['stored'] or 0
@@ -84,6 +91,13 @@ class Map:
                     obj.bank = r['bank'] or 0
                 if isinstance(obj, Robot):
                     obj.inventory = r['inventory'] or 0
+                    # Restore robot program code (stored as newline-separated text)
+                    raw_code = r['commands_text']
+                    if raw_code:
+                        lines = raw_code.split('\n')
+                        # Normalize to 10 lines, max 20 chars each
+                        padded = (lines + [''] * 10)[:10]
+                        obj.commands_text = [ln[:20] for ln in padded]
                 self.cells[pos] = obj
 
         # Simpler movement system: robots store their own state
@@ -677,6 +691,17 @@ class Map:
         
         for pos, obj in list(self.cells.items()):
             if isinstance(obj, Robot) and obj._program_running:
+                # Defer program execution while the robot is in motion so movement commands
+                # like GOTO block until arrival.
+                if getattr(obj, '_move_path', None):
+                    continue
+
+                # Pause program steps during active load/unload transfers (processed in tick_transfer).
+                loading = getattr(obj, '_loading_from', None) is not None and getattr(obj, '_loading_amount', None) is not None
+                unloading = getattr(obj, '_unloading_to', None) is not None and getattr(obj, '_unloading_amount', None) is not None
+                if loading or unloading:
+                    continue
+
                 # Check if robot is blocked
                 if game_seconds < obj._blocked_until:
                     continue

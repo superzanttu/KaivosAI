@@ -16,6 +16,18 @@
 
 ## Command Reference
 
+### Comments
+
+**; comment text**
+- Lines starting with `;` are comments (ignored by parser)
+- Comments can also appear at end of line after command
+- Everything after `;` is ignored
+- Example: `; This is a comment`
+- Example: `GOTO 5 ; Move to mine`
+- Example: `:LOOP LOAD ; Load materials`
+- Max length: Unlimited (line length limit applies before comment)
+- Note: Line length checked before comment removal, so keep code under 20 chars
+
 ### Label Declaration
 
 **:LABEL**
@@ -203,23 +215,25 @@
 
 ### Example 1: Simple Mine-to-Storage Loop
 ```
-:START GOTO 5
-LOAD
-GOTO 8
-UNLOAD
-GOTO :START
+; Simple transport loop
+:START GOTO 5    ; Go to mine
+LOAD             ; Pick up materials
+GOTO 8           ; Go to storage
+UNLOAD           ; Drop materials
+GOTO :START      ; Repeat forever
 ```
 Description: Robot shuttles materials from mine (ID 5) to storage (ID 8) continuously.
 
 ### Example 2: Proximity-Based Mining
 ```
-:START IF NEAR 1 MINE :LOAD
-U 1
+; Proximity-based search
+:START IF NEAR 1 MINE :LOAD  ; Check for mine
+U 1                          ; Move up to search
 GOTO :START
-:LOAD LOAD
-IF NEAR 1 STORE :DROP
-R 5
-:DROP UNLOAD
+:LOAD LOAD                   ; Found mine, load
+IF NEAR 1 STORE :DROP        ; Check for storage
+R 5                          ; Move right to search
+:DROP UNLOAD                 ; Found storage, unload
 GOTO :START
 ```
 Description: Robot searches for exactly one mine nearby, loads, then finds one storage to unload.
@@ -433,6 +447,7 @@ Description: Robot uses RANGE to detect mines in 5x5 area, then directional scan
 
 ## Character Count Reference (max 20 chars/line)
 ```
+; comment       (ignored - any length after code)
 :LOOP           (5 chars)
 GOTO 10 20      (10 chars)
 GOTO 10 20 D 2  (14 chars)
@@ -479,7 +494,8 @@ STOP            (4 chars)
 
 ```
 program     ::= line*
-line        ::= [label] command | label | NOP
+line        ::= [comment] | [label] command [comment] | label [comment] | NOP
+comment     ::= ";" TEXT
 label       ::= ":" IDENTIFIER
 command     ::= movement | transfer | control | utility | messaging
 movement    ::= "GOTO" target [distance] | direction NUMBER
@@ -617,6 +633,12 @@ NOP         ::= ""
 - Most commands that previously exceeded 15 chars now fit in 20 chars
 - Examples updated to use more descriptive labels where applicable
 
-- Enables look-ahead planning and long-range detection
-- Works with `IF NOT` for negative checks
-- Added Example 8 demonstrating directional scanning
+**v2.1** (2025-12-21): Comment support
+- Added comment syntax using `;` character
+- Comments can start at beginning of line or after command
+- Everything after `;` is ignored by parser
+- Example: `GOTO 5 ; Move to mine`
+- Example: `; This is a full-line comment`
+- Line length limit (20 chars) applies to code before comment
+- Updated examples 1-2 to demonstrate comment usage
+- Improves code documentation and readability
