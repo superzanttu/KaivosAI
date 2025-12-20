@@ -136,6 +136,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         ('base', 'light magenta', 'default'),
         ('rock', 'dark gray', 'default'),
         ('empty', 'dark gray', 'default'),
+        ('version_banner', 'black', 'light green'),
     ]
     
     # Widgets
@@ -309,22 +310,70 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         except Exception:
             return "--:--:--"
     
+    def show_version_dialog():
+        """Show modal dialog for new version notification."""
+        from pathlib import Path
+        from kaivosai import VERSION as NEW_VERSION
+        
+        # Create dialog content
+        banner = urwid.Text(('version_banner', f' NEW VERSION AVAILABLE: {NEW_VERSION} '), align='center')
+        message = urwid.Text('\nA new version of KaivosAI has been detected.\n', align='center')
+        instructions = urwid.Text('Press any key to restart\nPress ESC to quit', align='center')
+        
+        dialog_content = urwid.Pile([
+            urwid.Divider(),
+            banner,
+            urwid.Divider(),
+            message,
+            instructions,
+            urwid.Divider(),
+        ])
+        
+        dialog = urwid.LineBox(urwid.Filler(dialog_content), title='Update Notification')
+        overlay = urwid.Overlay(
+            dialog,
+            main_pile,
+            align='center',
+            width=('relative', 50),
+            valign='middle',
+            height=('relative', 30)
+        )
+        
+        def handle_version_key(key):
+            if key == 'esc':
+                # User wants to quit
+                flag_file = Path(__file__).parent.parent / "flag_new_version.lck"
+                try:
+                    flag_file.unlink()  # Remove flag file
+                except Exception:
+                    pass
+                raise urwid.ExitMainLoop()
+            else:
+                # Any other key: restart
+                flag_file = Path(__file__).parent.parent / "flag_new_version.lck"
+                try:
+                    flag_file.unlink()  # Remove flag file
+                except Exception:
+                    pass
+                import sys
+                import os
+                sys.stdout.flush()
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+        
+        loop.widget = overlay
+        loop.unhandled_input = handle_version_key
+    
     def refresh_display(loop=None, user_data=None):
         """Update all display widgets and tick robot movement."""
         # Check if version flag file exists (signals code reload)
         from pathlib import Path
         flag_file = Path(__file__).parent.parent / "flag_new_version.lck"
         if flag_file.exists():
-            status_text.set_text(f"New version detected. Restarting...")
-            try:
-                flag_file.unlink()  # Remove flag file
-            except Exception:
-                pass
-            import sys
-            import os
-            # Flush output and restart
-            sys.stdout.flush()
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            # Pause clock and show modal dialog
+            clock.pause()
+            status_text.set_text("New version detected! See dialog...")
+            show_version_dialog()
+            return  # Don't schedule next refresh
         
         # Advance robot movement each refresh (simple steady state)
         game_map.tick_movement()
