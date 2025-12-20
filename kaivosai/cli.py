@@ -450,12 +450,12 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             markup = []
             for event in events:
                 timestamp, obj_id, obj_type, event_type, message, x, y = event
-                # Format timestamp
+                # Format timestamp as W<n>D<n>HH:MM:SS
                 weeks, remainder = divmod(int(timestamp), 7 * 24 * 3600)
                 days, remainder = divmod(remainder, 24 * 3600)
                 hours, remainder = divmod(remainder, 3600)
                 minutes, seconds = divmod(remainder, 60)
-                time_str = f"W{weeks+1}D{days+1} {hours:02d}:{minutes:02d}"
+                time_str = f"W{weeks+1}D{days+1}{hours:02d}:{minutes:02d}:{seconds:02d}"
                 
                 # Determine event color and ASCII symbol based on type
                 if event_type in ('robot_arrived', 'robot_loaded', 'robot_unloaded', 'base_supplied'):
@@ -488,9 +488,29 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                     obj_letter = ''
                     obj_color = 'dim'
                 
-                # Truncate message if too long
-                if len(message) > 35:
-                    message = message[:32] + '...'
+                # Shorten message significantly to fit in limited space
+                # Remove redundant words and coordinates to make it compact
+                msg = message
+                # Remove "at (X,Y)" coordinate info (redundant with map)
+                import re
+                msg = re.sub(r'\s*at\s*\(\d+,\d+\)', '', msg)
+                # Remove "started" prefix for brevity
+                msg = msg.replace('started moving to', '→')
+                msg = msg.replace('started loading from', '←')
+                msg = msg.replace('started unloading to', '→')
+                msg = msg.replace('finished loading from', '←done')
+                msg = msg.replace('finished unloading to', '→done')
+                msg = msg.replace('arrived', '✓')
+                # Shorten common words
+                msg = msg.replace('Robot', 'R')
+                msg = msg.replace('Storage', 'S')
+                msg = msg.replace('Iron Mine', 'M')
+                msg = msg.replace('Mine', 'M')
+                msg = msg.replace('Base', 'B')
+                msg = msg.replace('inventory', 'inv')
+                # Truncate if still too long
+                if len(msg) > 28:
+                    msg = msg[:25] + '...'
                 
                 markup.append(('event_time', time_str))
                 markup.append(' ')
@@ -498,7 +518,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
                 if obj_letter:
                     markup.append((obj_color, obj_letter))
                 markup.append(' ')
-                markup.append((event_color, message))
+                markup.append((event_color, msg))
                 markup.append('\n')
             
             return markup
@@ -665,6 +685,9 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
             list                (ls)
             map                 (m)
         """
+        # Import models needed in this function (closure scope issue)
+        from .models import Robot, Mine, Storage, Base, Rock, create_object
+        
         if not cmd_line:
             return ""
         
