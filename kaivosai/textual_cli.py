@@ -398,37 +398,46 @@ class GameScreen(Screen):
             self.clock_display.clock_text = f"W{weeks} D{days}  {hours:02d}:{minutes:02d}:{seconds:02d}"
     
     def on_command_input_command_submitted(self, message: CommandInput.CommandSubmitted) -> None:
-        """Process submitted command."""
-        if self.command_window:
+        """Process submitted command - always safe, never crashes."""
+        if not self.command_window:
+            return
+        
+        try:
+            cmd = message.command.strip()
+            if not cmd:
+                return
+            
             # Show command with style
-            self.command_window.add_output(f"[bold cyan]›[/bold cyan] {message.command}")
+            self.command_window.add_output(f"[bold cyan]›[/bold cyan] {cmd}")
             
             # Handle quit command specially (needs to exit app)
-            cmd_lower = message.command.strip().lower().split()[0] if message.command.strip() else ""
+            cmd_lower = cmd.lower().split()[0] if cmd else ""
             if cmd_lower in ('quit', 'q', 'exit'):
                 self.app.exit(return_code=0)
                 return
             
-            # Process command through CLIController
-            try:
-                result = self.cli.process_command(message.command)
-                if result is not None:
-                    # Detect message type
-                    if cmd_lower == 'help':
-                        # Help text - show as-is with markup
-                        self.command_window.add_output(result)
-                    elif "error" in result.lower() or "failed" in result.lower() or "unknown" in result.lower():
-                        self.command_window.add_error(result)
-                    elif "success" in result.lower() or "added" in result.lower() or "moved" in result.lower() or "created" in result.lower():
-                        self.command_window.add_success(result)
-                    else:
-                        self.command_window.add_info(result)
-                else:
-                    self.command_window.add_error("Command returned no result")
-            except (CommandError, RobotError, MapError, ValidationError) as e:
-                self.command_window.add_error(str(e))
-            except Exception as e:
-                self.command_window.add_error(f"Unexpected error: {str(e)}")
+            # Process command through CLIController (guaranteed to return string, never throws)
+            result = self.cli.process_command(cmd)
+            
+            if not result:
+                self.command_window.add_info("Command processed")
+                return
+            
+            # Detect message type from result content
+            if cmd_lower == 'help':
+                # Help text - show as-is with markup
+                self.command_window.add_output(result)
+            elif any(err in result.lower() for err in ("error", "failed", "unknown", "usage")):
+                self.command_window.add_error(result)
+            elif any(ok in result.lower() for ok in ("success", "added", "moved", "created", "optimized", "paused", "resumed")):
+                self.command_window.add_success(result)
+            else:
+                self.command_window.add_info(result)
+        
+        except Exception as e:
+            # Safety net - catch any remaining exceptions
+            if self.command_window:
+                self.command_window.add_error(f"Internal error: {str(e)}")
     
     def action_quit(self) -> None:
         """Quit application."""

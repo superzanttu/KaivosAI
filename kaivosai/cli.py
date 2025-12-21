@@ -658,7 +658,12 @@ class CLIController:
 
         return 'Usage: robot ID <load|unload|code|start|pause|goto X Y>'
 
-    def process_command(self, cmd_line: str):
+    def process_command(self, cmd_line: str) -> str:
+        """Process command and return result string (never throws).
+        
+        All exceptions are caught and returned as error messages.
+        This ensures the UI never crashes from bad commands.
+        """
         if not cmd_line:
             return ""
 
@@ -686,42 +691,46 @@ class CLIController:
             'r': self._handle_robot,
         }
 
-        if first in handlers:
-            return handlers[first](parts)
+        try:
+            if first in handlers:
+                result = handlers[first](parts)
+                return result if result else "Command executed"
 
-        if first == 'quit':
-            # Quit is handled at UI level
-            return 'Goodbye!'
+            if first == 'quit':
+                return 'Goodbye!'
 
-        if first == 'help':
-            return self._build_help_text()
+            if first == 'help':
+                return self._build_help_text()
 
-        if first == 'version':
-            return f'KaivosAI version {VERSION}'
+            if first == 'version':
+                return f'KaivosAI version {VERSION}'
 
-        if first == 'pause':
-            if self.clock:
-                self.clock.pause()
-            return 'Clock paused'
+            if first == 'pause':
+                if self.clock:
+                    self.clock.pause()
+                return 'Clock paused'
 
-        if first == 'resume':
-            if self.clock:
-                self.clock.start()
-            return 'Clock resumed'
+            if first == 'resume':
+                if self.clock:
+                    self.clock.start()
+                return 'Clock resumed'
 
-        if first == 'terrain':
-            return 'Use "map terrain [density] [size]" or "map t" instead'
+            if first == 'terrain':
+                return 'Use "map terrain [density] [size]" or "map t" instead'
 
-        if first == 'list':
-            return 'See Objects panel (or use "map list")'
+            if first == 'list':
+                return 'See Objects panel (or use "map list")'
 
-        if first == 'reset':
-            return 'Use "map reset" instead'
+            if first == 'reset':
+                return 'Use "map reset" instead'
 
-        if first == 'demo':
-            return 'Use "map demo" instead'
+            if first == 'demo':
+                return 'Use "map demo" instead'
 
-        return f"I don't understand '{cmd_line}'. Type 'help' or 'system help' for commands."
+            return f"I don't understand '{cmd_line}'. Type 'help' or 'system help' for commands."
+        
+        except Exception as e:
+            return f"Error: {str(e)}"
 
 
 def expand_aliases(parts: List[str]) -> List[str]:
