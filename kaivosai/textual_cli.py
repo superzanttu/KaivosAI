@@ -205,7 +205,7 @@ class EventsPanel(Static):
 
 
 class CommandInput(Input):
-    """Command input widget."""
+    """Command input widget with enhanced styling and history support."""
     
     class CommandSubmitted(Message):
         """Posted when user submits a command."""
@@ -213,16 +213,54 @@ class CommandInput(Input):
             self.command = command
             super().__init__()
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.command_history: List[str] = []
+        self.history_index: int = -1
+    
+    def render(self) -> RenderResult:
+        """Render input with prompt."""
+        return f"[bold cyan]›[/bold cyan] {self.value}"
+    
     def _on_input_submitted(self) -> None:
         """Handle Enter key."""
         command = self.value.strip()
         if command:
+            if not self.command_history or self.command_history[-1] != command:
+                self.command_history.append(command)
+            self.history_index = -1
             self.post_message(self.CommandSubmitted(command))
             self.value = ""
+    
+    def action_cursor_up(self) -> None:
+        """Navigate command history backwards."""
+        if not self.command_history:
+            return
+        
+        if self.history_index == -1:
+            self.history_index = len(self.command_history) - 1
+        elif self.history_index > 0:
+            self.history_index -= 1
+        
+        if 0 <= self.history_index < len(self.command_history):
+            self.value = self.command_history[self.history_index]
+    
+    def action_cursor_down(self) -> None:
+        """Navigate command history forwards."""
+        if not self.command_history:
+            return
+        
+        if self.history_index != -1:
+            self.history_index += 1
+            if self.history_index >= len(self.command_history):
+                self.history_index = -1
+                self.value = ""
+            else:
+                self.value = self.command_history[self.history_index]
 
 
 class CommandWindow(Static):
-    """Command input and output window."""
+    """Command input and output window with enhanced UI."""
     
     def __init__(self, id: str = "command"):
         super().__init__(id=id)
@@ -230,16 +268,40 @@ class CommandWindow(Static):
         self.output_log: Optional[RichLog] = None
     
     def compose(self) -> ComposeResult:
-        """Compose command window."""
-        self.output_log = RichLog(markup=True, id="output-log")
+        """Compose command window with help text."""
+        # Header with info
+        info_text = "[dim]KaivosAI Command Line[/dim] · [cyan]type 'help' for commands[/cyan]"
+        yield Static(info_text, id="command-info", classes="panel-header")
+        
+        # Output log
+        self.output_log = RichLog(markup=True, id="output-log", classes="command-output")
         yield self.output_log
-        self.command_input = CommandInput(id="command-input")
-        yield self.command_input
+        
+        # Input field with border
+        with Horizontal(id="input-container"):
+            self.command_input = CommandInput(id="command-input")
+            yield self.command_input
     
-    def add_output(self, text: str) -> None:
-        """Add output to log."""
+    def add_output(self, text: str, style: str = "") -> None:
+        """Add output to log with optional styling."""
         if self.output_log:
-            self.output_log.write(text)
+            if style:
+                self.output_log.write(f"[{style}]{text}[/{style}]")
+            else:
+                # Text may contain rich markup, write as-is
+                self.output_log.write(text)
+    
+    def add_error(self, text: str) -> None:
+        """Add error message."""
+        self.add_output(text, "bold red")
+    
+    def add_success(self, text: str) -> None:
+        """Add success message."""
+        self.add_output(text, "bold green")
+    
+    def add_info(self, text: str) -> None:
+        """Add info message."""
+        self.add_output(text, "bold blue")
     
     def on_command_input_command_submitted(self, message: CommandInput.CommandSubmitted) -> None:
         """Forward command submission."""
@@ -334,10 +396,26 @@ class GameScreen(Screen):
     def on_command_input_command_submitted(self, message: CommandInput.CommandSubmitted) -> None:
         """Process submitted command."""
         if self.command_window:
-            self.command_window.add_output(f"> {message.command}\n")
+            # Show command with style
+            self.command_window.add_output(f"[bold cyan]›[/bold cyan] {message.command}")
+            
+            # Process and display result
             result = self._process_command(message.command)
             if result:
-                self.command_window.add_output(f"{result}\n")
+                # Detect message type from command
+                cmd_lower = message.command.strip().lower().split()[0]
+                
+                if cmd_lower == 'help':
+                    # Help text - show as-is with markup
+                    self.command_window.add_output(result)
+                elif "error" in result.lower() or "failed" in result.lower() or "unknown" in result.lower():
+                    self.command_window.add_error(result)
+                elif "success" in result.lower() or "added" in result.lower() or "moved" in result.lower() or "created" in result.lower():
+                    self.command_window.add_success(result)
+                else:
+                    self.command_window.add_info(result)
+            else:
+                self.command_window.add_error("Command returned no result")
     
     def _process_command(self, command_str: str) -> str:
         """Process natural language command."""
@@ -566,21 +644,34 @@ class GameScreen(Screen):
             return f"Unknown system command: {subcmd}"
     
     def _show_help(self) -> str:
-        """Show help text."""
-        help_text = """COMMANDS:
-create <type> [x] [y]    - Create object (robot, mine, storage, base)
-delete <id>              - Delete object
-move <id> <x> <y>        - Move object
-robot <id> goto <x> <y>  - Move robot to coordinates
-list                     - List objects
-inspect <id>             - Show object details
-system version           - Show version
-system help              - Show this help
-system optimize          - Renumber IDs
-system pause/resume      - Control game clock
-help, ?                  - Show this help
-quit, q                  - Exit game"""
-        return help_text
+        """Show help text with rich formatting."""
+        help_lines = [
+            "[bold cyan]═══════════════════════════════════════[/bold cyan]",
+            "[bold yellow]KAIVOSAI COMMAND REFERENCE[/bold yellow]",
+            "[bold cyan]═══════════════════════════════════════[/bold cyan]",
+            "",
+            "[bold green]OBJECT CREATION:[/bold green]",
+            "  create <type> [x] [y]  - Create robot|mine|storage|base|rock",
+            "",
+            "[bold green]OBJECT MANAGEMENT:[/bold green]",
+            "  delete <id>             - Delete object by ID",
+            "  move <id> <x> <y>       - Move object to coordinates",
+            "  inspect <id>            - Show object details",
+            "  list                    - List all objects",
+            "",
+            "[bold green]ROBOT CONTROL:[/bold green]",
+            "  robot <id> goto <x> <y> - Move robot to position",
+            "",
+            "[bold green]SYSTEM:[/bold green]",
+            "  system version          - Show KaivosAI version",
+            "  system pause/resume     - Control game clock",
+            "  system optimize         - Renumber object IDs",
+            "  system help             - Show this help",
+            "",
+            "[bold cyan]═══════════════════════════════════════[/bold cyan]",
+            "[dim]Type 'help' anytime for this reference[/dim]",
+        ]
+        return "\n".join(help_lines)
     
     def _optimize_ids(self) -> str:
         """Renumber all object IDs sequentially."""
@@ -675,6 +766,16 @@ class GameApp(App):
         width: 1fr;
         height: auto;
         border: solid $accent;
+        background: $boost;
+    }
+    
+    #command-info {
+        width: 1fr;
+        height: auto;
+        border-bottom: solid $accent;
+        text-align: center;
+        padding: 0 1;
+        background: $panel;
     }
     
     #output-log {
@@ -682,12 +783,26 @@ class GameApp(App):
         height: auto;
         border: none;
         background: $surface;
+        padding: 1 2;
+    }
+    
+    #input-container {
+        width: 1fr;
+        height: auto;
+        background: $boost;
+        border-top: solid $accent;
+        padding: 1 2;
     }
     
     #command-input {
         width: 1fr;
-        border-top: solid $primary;
-        margin: 1 2;
+        border: solid $primary;
+        background: $surface;
+    }
+    
+    #command-input:focus {
+        border: solid $secondary;
+        background: $boost;
     }
     """
     

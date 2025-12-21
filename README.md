@@ -4,7 +4,20 @@ KaivosAI is a minimal mining-game prototype with a Text User Interface (TUI). Th
 
 ## Run the game
 
-**First, activate the virtual environment:**
+**Quick start (Windows PowerShell):**
+
+```powershell
+.\test.ps1
+```
+
+This launches KaivosAI in a separate window. The script automatically:
+- Activates the virtual environment
+- Checks dependencies
+- Starts the game
+
+**Manual launch:**
+
+First, activate the virtual environment:
 
 ```powershell
 .venv\Scripts\Activate.ps1
@@ -16,11 +29,10 @@ Then run the game:
 python kaivosai.py
 ```
 
-Or run the package CLI directly:
+**Other platforms:**
 
-```powershell
-python -m kaivosai.cli
-```
+- **Linux/macOS/WSL:** `./run.sh`
+- **Windows CMD:** `run.bat`
 
 The TUI uses [Textual](https://textual.textualize.io/) framework to display:
 - **Map panel**: live ASCII map with auto-centering and rock-bordered terrain
