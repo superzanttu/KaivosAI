@@ -68,40 +68,47 @@ class Map:
         self.height = height
         self.conn = conn
         self.cells: Dict[Position, object] = {}
+        
         if self.conn:
             init_game_db(self.conn)
-            rows = load_objects_from_db(self.conn)
-            # loader returns sqlite rows; convert to model instances
-            from .models import create_object
-            for r in rows:
-                t = r['type']
-                pos = (r['x'], r['y'])
-                obj = create_object(
-                    t,
-                    id=r['id'],
-                    name=r['name'],
-                    pos=pos,
-                    capacity=r['capacity'],
-                    durability=r['durability'],
-                )
-                # set extra fields
-                if isinstance(obj, Storage):
-                    obj.stored = r['stored'] or 0
-                if isinstance(obj, Base):
-                    obj.bank = r['bank'] or 0
-                if isinstance(obj, Robot):
-                    obj.inventory = r['inventory'] or 0
-                    # Restore robot program code (stored as newline-separated text)
-                    raw_code = r['commands_text']
-                    if raw_code:
-                        lines = raw_code.split('\n')
-                        # Normalize to 10 lines, max 20 chars each
-                        padded = (lines + [''] * 10)[:10]
-                        obj.commands_text = [ln[:20] for ln in padded]
-                self.cells[pos] = obj
-
-        # Simpler movement system: robots store their own state
-        # No background thread; movement happens on explicit tick_movement() calls
+            self._load_objects_from_db()
+    
+    def _load_objects_from_db(self) -> None:
+        """Load all objects from database and populate map cells."""
+        rows = load_objects_from_db(self.conn)
+        from .models import create_object, Robot, Storage, Base
+        
+        for r in rows:
+            pos = (r['x'], r['y'])
+            obj = create_object(
+                r['type'],
+                id=r['id'],
+                name=r['name'],
+                pos=pos,
+                capacity=r['capacity'],
+                durability=r['durability'],
+            )
+            
+            # Restore type-specific fields
+            if isinstance(obj, Storage):
+                obj.stored = r['stored'] or 0
+            elif isinstance(obj, Base):
+                obj.bank = r['bank'] or 0
+                obj.stored = r['stored'] or 0
+            elif isinstance(obj, Robot):
+                obj.inventory = r['inventory'] or 0
+                self._restore_robot_program(obj, r['commands_text'])
+            
+            self.cells[pos] = obj
+    
+    def _restore_robot_program(self, robot: 'Robot', raw_code: Optional[str]) -> None:
+        """Restore robot program from database text."""
+        if raw_code:
+            lines = raw_code.split('\n')
+            padded = (lines + [''] * 10)[:10]
+            robot.commands_text = [ln[:20] for ln in padded]
+        else:
+            robot.commands_text = [''] * 10
 
     def in_bounds(self, pos: Position) -> bool:
         """Check if position is within map boundaries.

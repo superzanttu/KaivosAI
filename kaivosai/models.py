@@ -4,43 +4,10 @@ Defines all game entities: buildings (Mine, Storage, Base), robots, and terrain.
 Uses dataclasses for efficient object creation and serialization.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Tuple, Optional
 
 Position = Tuple[int, int]
-
-
-def _ensure_material_fields(obj, stored_default: int = 0, 
-                            last_time_field: str = 'last_production_time',
-                            last_time_default: float = 0.0) -> None:
-    """Ensure material system fields exist for backward compatibility.
-    
-    Initializes missing material fields on objects loaded from old database
-    versions that didn't have these attributes. Prevents AttributeError when
-    accessing production/consumption timing fields.
-    
-    Args:
-        obj: Object to initialize fields on
-        stored_default: Default value for stored field (typically 0)
-        last_time_field: Name of timing field (last_production_time or last_consumption_time)
-        last_time_default: Default value for timing field (typically 0.0)
-        
-    Note:
-        Called automatically by produce() and consume() methods.
-        Safe to call multiple times (idempotent).
-        
-    Example:
-        >>> mine = Mine(pos=(5, 5))
-        >>> _ensure_material_fields(mine)
-        >>> mine.stored  # Now safe to access
-        0
-    """
-    if not hasattr(obj, 'stored') or obj.stored is None:
-        obj.stored = stored_default
-    if not hasattr(obj, 'capacity') or obj.capacity is None:
-        obj.capacity = 10
-    if not hasattr(obj, last_time_field):
-        setattr(obj, last_time_field, last_time_default)
 
 
 @dataclass
@@ -104,11 +71,9 @@ class Mine(Building):
         Returns:
             Number of materials produced (0 or 1)
         """
-        # Initialize fields if missing (for objects loaded from old DB)
-        _ensure_material_fields(self, last_time_field='last_production_time')
-            
         if self.stored >= self.capacity:
             return 0  # Full, can't produce
+            
         # Produce 1 material every 10 seconds
         production_interval = 10
         if game_seconds >= self.last_production_time + production_interval:
@@ -217,11 +182,9 @@ class Base(Building):
         Returns:
             Number of materials consumed (0 or 1)
         """
-        # Initialize fields if missing (for objects loaded from old DB)
-        _ensure_material_fields(self, last_time_field='last_consumption_time')
-            
         if self.stored <= 0:
             return 0
+            
         consumption_interval = 10
         if game_seconds >= self.last_consumption_time + consumption_interval:
             consumed = min(1, self.stored)
