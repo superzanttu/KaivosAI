@@ -1,20 +1,12 @@
-"""Textual TUI for KaivosAI - Modern windowing system with proper floating windows.
+"""Textual TUI for KaivosAI - Modern windowing system with proper layout.
 
-This replaces urwid with Textual framework which provides:
-    - Native modal dialogs and floating windows
-    - Proper CSS-based styling and layout
-    - Drag-and-drop support built-in
-    - Robust widget and focus management
-    - Responsive design
-    
 Main components:
     - GameApp: Main Textual Application
-    - MapDisplay: Widget rendering 30x30 colored game map
-    - ObjectsPanel: List of robots, mines, storage, bases with status
-    - EventsPanel: Scrollable game events log
-    - StatusBar: Clock, game info, controls
-    - CommandInput: Natural language command parser
-    - ClockModal: Draggable floating window showing time
+    - MapDisplay: Scrollable map with coordinates and two-char cells
+    - ObjectsPanel: List of objects (no rocks) with type-specific info
+    - ClockDisplay: Game clock showing W<week>D<day> HH:MM:SS
+    - EventsPanel: Status notifications log
+    - CommandWindow: Command input and output
     
 Threading:
     - Main thread: Textual event loop + UI updates
@@ -29,15 +21,13 @@ import os
 
 from textual.app import ComposeResult, App, RenderResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
-from textual.widgets import Header, Footer, Static, Input, RichLog, Button
-from textual.screen import Screen, ModalScreen
+from textual.widgets import Header, Footer, Static, Input, RichLog
+from textual.screen import Screen
 from textual.binding import Binding
 from textual.reactive import reactive
 from textual.message import Message
-from textual.geometry import Region
 from rich.panel import Panel
 from rich.text import Text
-from rich.syntax import Syntax
 from rich.table import Table
 
 from .db import get_game_conn, init_game_db, log_event
@@ -75,132 +65,147 @@ COMMAND_ALIASES = {
 
 
 class MapDisplay(Static):
-    """Widget rendering the 30x30 colored game map."""
+    """Scrollable map widget showing 30x30 grid with coordinates."""
     
-    def __init__(self, game_map: Map, name: str = "map", id: str = None):
-        super().__init__(name=name, id=id)
+    def __init__(self, game_map: Map, id: str = "map"):
+        super().__init__(id=id)
         self.game_map = game_map
-        self.border_title = "MAP"
     
     def render(self) -> RenderResult:
-        """Render colored map with game objects."""
+        """Render map with X,Y coordinates and two-char cells."""
         lines = []
         
-        if not self.game_map.cells:
-            return Panel("Empty map", title="MAP")
+        # Header: X coordinates (0, 5, 10, 15, ...)
+        header = "  Y "
+        for x in range(30):
+            if x % 5 == 0:
+                header += f"{x:2d}"
+            else:
+                header += "  "
+        lines.append(header)
         
-        # Render 30x30 map area (0,0) to (29,29)
+        # Map rows with Y coordinate
         for y in range(30):
-            line = ""
+            row = f"{y:2d} "
             for x in range(30):
                 obj = self.game_map.get((x, y))
+                
+                # First character: object type
                 if isinstance(obj, Robot):
-                    line += "[cyan]R[/cyan]"
+                    type_char = "R"
                 elif isinstance(obj, Mine):
-                    line += "[yellow]M[/yellow]"
+                    type_char = "M"
                 elif isinstance(obj, Storage):
-                    line += "[green]S[/green]"
+                    type_char = "S"
                 elif isinstance(obj, Base):
-                    line += "[magenta]B[/magenta]"
+                    type_char = "B"
                 elif isinstance(obj, Rock):
-                    line += "[dim]#[/dim]"
+                    type_char = "#"
                 else:
-                    line += "."
-            lines.append(line)
+                    type_char = "."
+                
+                # Second character: status indicator
+                if isinstance(obj, Robot):
+                    status_char = "▲" if obj.inventory > 0 else "○"
+                elif isinstance(obj, Mine):
+                    status_char = "*" if obj.stored == obj.capacity else "·"
+                elif isinstance(obj, Storage):
+                    status_char = "*" if obj.stored == obj.capacity else "·"
+                elif isinstance(obj, Base):
+                    status_char = "△" if obj.stored > 0 else "□"
+                else:
+                    status_char = " "
+                
+                row += f"{type_char}{status_char}"
+            
+            lines.append(row)
         
-        map_text = "\n".join(lines) if lines else "Empty map"
-        return Panel(map_text, title="MAP", expand=False)
+        map_text = "\n".join(lines)
+        return Panel(map_text, title="MAP (30x30)", expand=False)
 
 
 class ObjectsPanel(Static):
-    """Widget displaying list of game objects with status."""
+    """List of game objects (excluding rocks) with type-specific info."""
     
-    def __init__(self, game_map: Map, name: str = "objects", id: str = None):
-        super().__init__(name=name, id=id)
+    def __init__(self, game_map: Map, id: str = "objects"):
+        super().__init__(id=id)
         self.game_map = game_map
-        self.border_title = "OBJECTS"
     
     def render(self) -> RenderResult:
-        """Render list of objects with inventory/material status."""
+        """Render objects table."""
         table = Table(title="Objects", show_header=True, expand=True)
-        table.add_column("ID", style="cyan", width=6)
-        table.add_column("Name", style="green", width=10)
+        table.add_column("ID", style="cyan", width=4)
+        table.add_column("Type", style="green", width=8)
         table.add_column("Pos", style="yellow", width=8)
-        table.add_column("Status", style="white", width=15)
+        table.add_column("Data", style="white", width=20)
         
         for obj in sorted(self.game_map.cells.values(), key=lambda o: o.id):
-            # Skip rocks - they clutter the object list
+            # Skip rocks
             if isinstance(obj, Rock):
                 continue
             
-            if isinstance(obj, Robot):
-                status = f"inv:{obj.inventory}/{obj.capacity}"
-            elif isinstance(obj, (Mine, Storage)):
-                status = f"mat:{obj.stored}/{obj.capacity}"
-            elif isinstance(obj, Base):
-                status = f"mat:{obj.stored} bank:{obj.bank}"
-            else:
-                status = ""
+            obj_type = obj.__class__.__name__
+            pos_str = f"({obj.pos[0]},{obj.pos[1]})"
             
-            table.add_row(
-                str(obj.id),
-                obj.__class__.__name__,
-                f"({obj.pos[0]},{obj.pos[1]})",
-                status
-            )
+            # Type-specific data
+            if isinstance(obj, Robot):
+                data = f"inv:{obj.inventory}/{obj.capacity}"
+            elif isinstance(obj, Mine):
+                data = f"stored:{obj.stored}/{obj.capacity}"
+            elif isinstance(obj, Storage):
+                data = f"stored:{obj.stored}/{obj.capacity}"
+            elif isinstance(obj, Base):
+                data = f"stored:{obj.stored} bank:{obj.bank}"
+            else:
+                data = ""
+            
+            table.add_row(str(obj.id), obj_type, pos_str, data)
         
-        return Panel(table, title="OBJECTS", expand=True)
+        return Panel(table, title="Objects", expand=True)
+
+
+class ClockDisplay(Static):
+    """Static clock display showing game time."""
+    
+    clock_text = reactive("W0 D0  00:00:00")
+    
+    def __init__(self, clock: Optional[GameClock] = None, id: str = "clock"):
+        super().__init__(id=id)
+        self.clock = clock
+    
+    def watch_clock_text(self) -> None:
+        """Refresh when clock updates."""
+        self.refresh()
+    
+    def render(self) -> RenderResult:
+        """Render clock display."""
+        return Panel(f"[bold cyan]{self.clock_text}[/bold cyan]", title="Clock", expand=False)
 
 
 class EventsPanel(Static):
-    """Widget displaying scrollable game events log."""
+    """Game events log showing status changes."""
     
-    def __init__(self, name: str = "events", id: str = None):
-        super().__init__(name=name, id=id)
+    def __init__(self, id: str = "events"):
+        super().__init__(id=id)
         self.events: List[str] = []
-        self.border_title = "EVENTS"
     
     def add_event(self, event: str) -> None:
-        """Add event to log (with deduplication)."""
+        """Add event to log with deduplication."""
         if not self.events or self.events[-1] != event:
             self.events.append(event)
-            # Keep last 50 events
-            if len(self.events) > 50:
+            # Keep last 100 events
+            if len(self.events) > 100:
                 self.events.pop(0)
             self.refresh()
     
     def render(self) -> RenderResult:
-        """Render recent events."""
-        events_text = "\n".join(self.events[-20:]) if self.events else "No events yet"
-        return Panel(events_text, title="EVENTS", expand=False)
-
-
-class StatusBar(Static):
-    """Widget displaying game status and clock."""
-    
-    clock_display = reactive("W0 D0  00:00:00")
-    status_text = reactive("Ready")
-    
-    def __init__(self, clock: Optional[GameClock] = None, name: str = "status"):
-        super().__init__(name=name)
-        self.clock = clock
-    
-    def watch_clock_display(self) -> None:
-        """Update display when clock changes."""
-        self.refresh()
-    
-    def watch_status_text(self) -> None:
-        """Update display when status changes."""
-        self.refresh()
-    
-    def render(self) -> RenderResult:
-        """Render status bar with clock and info."""
-        status = f"[bold cyan]{self.clock_display}[/bold cyan] | {self.status_text}"
-        return Panel(status, title="STATUS", expand=False)
+        """Render events log."""
+        events_text = "\n".join(self.events[-15:]) if self.events else "[dim]No events yet[/dim]"
+        return Panel(events_text, title="Events", expand=True)
 
 
 class CommandInput(Input):
-    """Custom input widget for natural language commands."""
+    """Command input widget."""
     
     class CommandSubmitted(Message):
         """Posted when user submits a command."""
@@ -216,13 +221,37 @@ class CommandInput(Input):
             self.value = ""
 
 
+class CommandWindow(Static):
+    """Command input and output window."""
+    
+    def __init__(self, id: str = "command"):
+        super().__init__(id=id)
+        self.command_input: Optional[CommandInput] = None
+        self.output_log: Optional[RichLog] = None
+    
+    def compose(self) -> ComposeResult:
+        """Compose command window."""
+        self.output_log = RichLog(markup=True, id="output-log")
+        yield self.output_log
+        self.command_input = CommandInput(id="command-input")
+        yield self.command_input
+    
+    def add_output(self, text: str) -> None:
+        """Add output to log."""
+        if self.output_log:
+            self.output_log.write(text)
+    
+    def on_command_input_command_submitted(self, message: CommandInput.CommandSubmitted) -> None:
+        """Forward command submission."""
+        self.post_message(message)
+
+
 class GameScreen(Screen):
-    """Main game screen with map, objects, events, and command input."""
+    """Main game screen layout."""
     
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("?", "help", "Help"),
-        Binding("c", "show_clock", "Clock"),
     ]
     
     def __init__(self, game_map: Map, clock: Optional[GameClock] = None):
@@ -230,101 +259,88 @@ class GameScreen(Screen):
         self.game_map = game_map
         self.clock = clock
         self.conn = game_map.conn if hasattr(game_map, 'conn') else get_game_conn()
-        self.status_bar: Optional[StatusBar] = None
+        
+        # Widgets
+        self.map_display: Optional[MapDisplay] = None
+        self.objects_panel: Optional[ObjectsPanel] = None
+        self.clock_display: Optional[ClockDisplay] = None
         self.events_panel: Optional[EventsPanel] = None
+        self.command_window: Optional[CommandWindow] = None
     
     def compose(self) -> ComposeResult:
-        """Compose game screen layout."""
-        # Header
+        """Compose main game screen."""
         yield Header()
         
-        # Main content area: Map on left, Objects/Events on right
         with Horizontal():
-            # Left side: map (2/3 width)
-            with Vertical(id="left-panel"):
-                yield MapDisplay(self.game_map, id="map")
+            # Left: Map (2/3 width)
+            with Vertical(id="left-pane"):
+                self.map_display = MapDisplay(self.game_map, id="map")
+                yield self.map_display
             
-            # Right side: objects, events (1/3 width) - scrollable
-            with ScrollableContainer(id="right-panel"):
-                yield ObjectsPanel(self.game_map, id="objects")
-                self.events_panel = EventsPanel(id="events")
-                yield self.events_panel
+            # Right: Clock, Objects, Events (1/3 width)
+            with ScrollableContainer(id="right-pane"):
+                with Vertical():
+                    self.clock_display = ClockDisplay(self.clock, id="clock")
+                    yield self.clock_display
+                    
+                    self.objects_panel = ObjectsPanel(self.game_map, id="objects")
+                    yield self.objects_panel
+                    
+                    self.events_panel = EventsPanel(id="events")
+                    yield self.events_panel
         
-        # Bottom: status and command input
-        with Vertical(id="bottom-panel"):
-            self.status_bar = StatusBar(self.clock)
-            yield self.status_bar
-            yield CommandInput(placeholder="Enter command...")
+        # Bottom: Command window
+        self.command_window = CommandWindow(id="command")
+        yield self.command_window
         
         yield Footer()
     
     def on_mount(self) -> None:
-        """Setup after widgets are mounted."""
-        if self.clock:
-            self.clock.start()
-        self._refresh_clock()
-        
-        # Set up periodic refresh every 0.5 seconds to update map, objects, events
+        """Setup periodic refresh and clock updates."""
+        # Periodic refresh: update map, objects every 0.5s
         self.set_interval(0.5, self._refresh_displays)
-    
-    def on_command_input_command_submitted(self, message: CommandInput.CommandSubmitted) -> None:
-        """Handle command submission."""
-        try:
-            result = self._process_command(message.command)
-            if self.status_bar:
-                self.status_bar.status_text = result
-            if self.events_panel:
-                self.events_panel.add_event(f"> {message.command}")
-                self.events_panel.add_event(result)
-        except Exception as e:
-            if self.status_bar:
-                self.status_bar.status_text = f"Error: {str(e)}"
-            if self.events_panel:
-                self.events_panel.add_event(f"Error: {str(e)}")
-    
-    def action_quit(self) -> None:
-        """Quit the application."""
-        self.app.exit()
-    
-    def action_help(self) -> None:
-        """Show help."""
-        if self.status_bar:
-            self.status_bar.status_text = "Type 'help' command for full help"
-    
-    def action_show_clock(self) -> None:
-        """Show clock modal (not yet implemented)."""
-        if self.status_bar:
-            self.status_bar.status_text = "Clock modal coming soon"
-    
-    def _refresh_clock(self) -> None:
-        """Update clock display every second."""
-        if self.clock and self.status_bar:
-            seconds = self.clock.seconds
-            weeks = seconds // (7 * 24 * 3600)
-            days = (seconds % (7 * 24 * 3600)) // (24 * 3600)
-            hours = (seconds % (24 * 3600)) // 3600
-            minutes = (seconds % 3600) // 60
-            secs = seconds % 60
-            
-            self.status_bar.clock_display = (
-                f"W{weeks} D{days}  {hours:02d}:{minutes:02d}:{secs:02d}"
-            )
+        
+        # Clock update: update clock display every 1s
+        if self.clock:
+            self.set_interval(1.0, self._update_clock)
     
     def _refresh_displays(self) -> None:
-        """Refresh all game panels (map, objects, events, clock)."""
-        # Find and refresh all display widgets
-        map_display = self.query_one("#map", MapDisplay)
-        objects_panel = self.query_one("#objects", ObjectsPanel)
-        events_panel = self.query_one("#events", EventsPanel)
-        
-        map_display.refresh()
-        objects_panel.refresh()
-        events_panel.refresh()
-        
-        self._refresh_clock()
+        """Refresh map and objects displays."""
+        if self.map_display:
+            self.map_display.refresh()
+        if self.objects_panel:
+            self.objects_panel.refresh()
+    
+    def _update_clock(self) -> None:
+        """Update clock display from game clock."""
+        if self.clock and self.clock_display:
+            game_seconds = self.clock.seconds
+            
+            # Convert to weeks, days, hours, minutes, seconds
+            seconds_per_day = 86400
+            seconds_per_week = seconds_per_day * 7
+            
+            weeks = game_seconds // seconds_per_week
+            remainder = game_seconds % seconds_per_week
+            days = remainder // seconds_per_day
+            remainder = remainder % seconds_per_day
+            hours = remainder // 3600
+            remainder = remainder % 3600
+            minutes = remainder // 60
+            seconds = remainder % 60
+            
+            self.clock_display.clock_text = f"W{weeks} D{days}  {hours:02d}:{minutes:02d}:{seconds:02d}"
+    
+    def on_command_input_command_submitted(self, message: CommandInput.CommandSubmitted) -> None:
+        """Process submitted command."""
+        if self.command_window:
+            self.command_window.add_output(f"> {message.command}\n")
+            result = self._process_command(message.command)
+            if result:
+                self.command_window.add_output(f"{result}\n")
     
     def _process_command(self, command_str: str) -> str:
-        """Process natural language command (from original cli.py logic)."""
+        """Process natural language command."""
         command_str = command_str.strip()
         if not command_str:
             return "Empty command"
@@ -362,9 +378,10 @@ class GameScreen(Screen):
         elif cmd == 'system':
             return self._handle_system(parts)
         elif cmd == 'help':
-            return self._handle_system(['system', 'help'])
+            return self._show_help()
         elif cmd == 'quit':
-            return self._handle_system(['system', 'quit'])
+            self.app.exit()
+            return "Quitting..."
         else:
             return f"Unknown command: {cmd}. Type 'help' for commands."
     
@@ -374,7 +391,6 @@ class GameScreen(Screen):
             return "Usage: create <robot|mine|storage|base|rock> [x] [y]"
         
         obj_type = parts[1].lower()
-        
         if obj_type not in ['robot', 'mine', 'storage', 'base', 'rock']:
             return f"Unknown object type: {obj_type}"
         
@@ -401,170 +417,104 @@ class GameScreen(Screen):
         
         try:
             obj_id = int(parts[1])
-            obj = self.game_map.get_object_by_id(obj_id)
-            if not obj:
-                return f"Object {obj_id} not found"
-            
-            self.game_map.remove_object(obj.pos)
-            return f"Deleted object {obj_id}"
         except ValueError:
             return "ID must be an integer"
+        
+        obj = self.game_map.get_object_by_id(obj_id)
+        if not obj:
+            return f"No object with ID {obj_id}"
+        
+        try:
+            self.game_map.remove_object(obj_id)
+            return f"Deleted object {obj_id}"
         except Exception as e:
-            return f"Failed to delete: {str(e)}"
+            return f"Failed to delete object: {str(e)}"
     
     def _handle_move(self, parts: List[str]) -> str:
-        """Move object: move <id> <x> <y>"""
+        """Move robot: move <id> <x> <y>"""
         if len(parts) < 4:
             return "Usage: move <id> <x> <y>"
         
         try:
-            obj_id = int(parts[1])
-            x, y = int(parts[2]), int(parts[3])
-            
-            obj = self.game_map.get_object_by_id(obj_id)
-            if not obj:
-                return f"Object {obj_id} not found"
-            
-            # Remove from old position, add to new
-            self.game_map.remove_object(obj.pos)
-            obj.pos = (x, y)
-            self.game_map.add_object(obj, (x, y))
-            
-            return f"Moved object {obj_id} to ({x}, {y})"
+            obj_id, x, y = int(parts[1]), int(parts[2]), int(parts[3])
         except ValueError:
-            return "ID and position must be integers"
+            return "Arguments must be integers"
+        
+        obj = self.game_map.get_object_by_id(obj_id)
+        if not obj:
+            return f"No object with ID {obj_id}"
+        
+        if not isinstance(obj, Robot):
+            return "Only robots can move"
+        
+        try:
+            self.game_map.move_object(obj, (x, y))
+            return f"Moved robot {obj_id} to ({x}, {y})"
         except Exception as e:
-            return f"Failed to move: {str(e)}"
+            return f"Failed to move robot: {str(e)}"
     
     def _handle_load(self, parts: List[str]) -> str:
-        """Load materials: load <robot_id> <storage_id>"""
-        if len(parts) < 3:
-            return "Usage: load <robot_id> <storage_id>"
+        """Load materials: load <robot_id> [amount]"""
+        if len(parts) < 2:
+            return "Usage: load <robot_id> [amount]"
         
         try:
             robot_id = int(parts[1])
-            storage_id = int(parts[2])
-            
-            robot = self.game_map.get_object_by_id(robot_id)
-            storage = self.game_map.get_object_by_id(storage_id)
-            
-            if not robot or not isinstance(robot, Robot):
-                return f"Robot {robot_id} not found"
-            if not storage or not isinstance(storage, (Mine, Storage)):
-                return f"Storage {storage_id} not found"
-            
-            robot.start_loading(storage)
-            return f"Robot {robot_id} loading from storage {storage_id}"
+            amount = int(parts[2]) if len(parts) > 2 else None
         except ValueError:
-            return "IDs must be integers"
-        except Exception as e:
-            return f"Failed to load: {str(e)}"
+            return "Arguments must be integers"
+        
+        robot = self.game_map.get_object_by_id(robot_id)
+        if not robot or not isinstance(robot, Robot):
+            return f"Robot {robot_id} not found"
+        
+        return "Load command not yet implemented in detail"
     
     def _handle_unload(self, parts: List[str]) -> str:
-        """Unload materials: unload <robot_id> <storage_id>"""
-        if len(parts) < 3:
-            return "Usage: unload <robot_id> <storage_id>"
+        """Unload materials: unload <robot_id> [amount]"""
+        if len(parts) < 2:
+            return "Usage: unload <robot_id> [amount]"
         
-        try:
-            robot_id = int(parts[1])
-            storage_id = int(parts[2])
-            
-            robot = self.game_map.get_object_by_id(robot_id)
-            storage = self.game_map.get_object_by_id(storage_id)
-            
-            if not robot or not isinstance(robot, Robot):
-                return f"Robot {robot_id} not found"
-            if not storage or not isinstance(storage, (Storage, Base)):
-                return f"Storage {storage_id} not found"
-            
-            robot.start_unloading(storage)
-            return f"Robot {robot_id} unloading to storage {storage_id}"
-        except ValueError:
-            return "IDs must be integers"
-        except Exception as e:
-            return f"Failed to unload: {str(e)}"
+        return "Unload command not yet implemented in detail"
     
     def _handle_robot(self, parts: List[str]) -> str:
-        """Robot commands: robot <id> <start|pause|code>"""
+        """Robot commands: robot <id> <subcommand>"""
         if len(parts) < 3:
-            return "Usage: robot <id> <start|pause|code [program]>"
+            return "Usage: robot <id> <goto|load|unload|code|start|pause>"
         
         try:
             robot_id = int(parts[1])
-            robot = self.game_map.get_object_by_id(robot_id)
-            
-            if not robot or not isinstance(robot, Robot):
-                return f"Robot {robot_id} not found"
-            
-            subcmd = parts[2].lower()
-            
-            if subcmd == 'start':
-                robot.program_running = True
-                robot.pc = 0
-                return f"Started robot {robot_id}"
-            elif subcmd == 'pause':
-                robot.program_running = False
-                return f"Paused robot {robot_id}"
-            elif subcmd == 'code':
-                if len(parts) > 3:
-                    program_text = " ".join(parts[3:])
-                    robot.program = program_text.split('\n')
-                    return f"Set program for robot {robot_id}"
-                return "Usage: robot <id> code <program>"
-            else:
-                return f"Unknown robot command: {subcmd}"
         except ValueError:
-            return "Robot ID must be an integer"
-        except Exception as e:
-            return f"Failed: {str(e)}"
+            return "Robot ID must be integer"
+        
+        robot = self.game_map.get_object_by_id(robot_id)
+        if not robot or not isinstance(robot, Robot):
+            return f"Robot {robot_id} not found"
+        
+        subcmd = parts[2].lower()
+        
+        if subcmd == 'goto':
+            if len(parts) < 5:
+                return "Usage: robot <id> goto <x> <y>"
+            try:
+                x, y = int(parts[3]), int(parts[4])
+                self.game_map.move_object(robot, (x, y))
+                return f"Robot {robot_id} moving to ({x}, {y})"
+            except Exception as e:
+                return f"Move failed: {str(e)}"
+        else:
+            return f"Robot subcommand '{subcmd}' not yet implemented"
     
     def _handle_map(self, parts: List[str]) -> str:
-        """Map commands: map <show|terrain|demo|reset>"""
-        if len(parts) < 2:
-            return "Usage: map <show|terrain|demo|reset>"
-        
-        subcmd = parts[1].lower()
-        
-        if subcmd == 'show':
-            return "Map displayed above"
-        elif subcmd == 'terrain':
-            # Generate random terrain
-            random.seed(time.time())
-            for _ in range(10):
-                x, y = random.randint(0, 29), random.randint(0, 29)
-                if not self.game_map.get((x, y)):
-                    rock = Rock(pos=(x, y))
-                    self.game_map.add_object(rock, (x, y))
-            return "Generated terrain (rocks)"
-        elif subcmd == 'demo':
-            return "Demo mode not yet implemented"
-        elif subcmd == 'reset':
-            self.game_map.cells.clear()
-            if self.conn:
-                cursor = self.conn.cursor()
-                cursor.execute("DELETE FROM game_objects")
-                self.conn.commit()
-            return "Map reset"
-        else:
-            return f"Unknown map command: {subcmd}"
+        """Map commands: map [terrain]"""
+        if len(parts) > 1 and parts[1].lower() == 'terrain':
+            return "Terrain generation not yet implemented"
+        return "Map displayed in main window"
     
     def _handle_list(self, parts: List[str]) -> str:
-        """List objects: list [type]"""
-        if not self.game_map.cells:
-            return "No objects on map"
-        
-        lines = []
-        for obj in sorted(self.game_map.cells.values(), key=lambda o: o.id):
-            if isinstance(obj, Robot):
-                inv = f" inv:{obj.inventory}/{obj.carrying_capacity}"
-            elif isinstance(obj, (Mine, Storage, Base)):
-                inv = f" mat:{obj.stored}/{obj.capacity}"
-            else:
-                inv = ""
-            
-            lines.append(f"  ID {obj.id}: {obj.__class__.__name__} at ({obj.pos[0]},{obj.pos[1]}){inv}")
-        
-        return "Objects:\n" + "\n".join(lines)
+        """List objects: list"""
+        count = len([o for o in self.game_map.cells.values() if not isinstance(o, Rock)])
+        return f"Objects window shows {count} objects (excluding rocks)"
     
     def _handle_inspect(self, parts: List[str]) -> str:
         """Inspect object: inspect <id>"""
@@ -573,28 +523,25 @@ class GameScreen(Screen):
         
         try:
             obj_id = int(parts[1])
-            obj = self.game_map.get_object_by_id(obj_id)
-            
-            if not obj:
-                return f"Object {obj_id} not found"
-            
-            details = f"ID: {obj.id}\nType: {obj.__class__.__name__}\nPos: {obj.pos}"
-            
-            if isinstance(obj, Robot):
-                details += f"\nInventory: {obj.inventory}/{obj.carrying_capacity}"
-                details += f"\nProgram: {len(obj.program)} lines"
-                details += f"\nRunning: {obj.program_running}"
-            elif isinstance(obj, (Mine, Storage, Base)):
-                details += f"\nMaterials: {obj.stored}/{obj.capacity}"
-            
-            return details
         except ValueError:
-            return "ID must be an integer"
+            return "ID must be integer"
+        
+        obj = self.game_map.get_object_by_id(obj_id)
+        if not obj:
+            return f"No object with ID {obj_id}"
+        
+        details = f"{obj.__class__.__name__} #{obj.id} at {obj.pos}"
+        if hasattr(obj, 'inventory'):
+            details += f" | inventory: {obj.inventory}/{obj.capacity}"
+        if hasattr(obj, 'stored'):
+            details += f" | stored: {obj.stored}/{obj.capacity}"
+        
+        return details
     
     def _handle_system(self, parts: List[str]) -> str:
-        """System commands: system <help|version|quit|pause|resume>"""
+        """System commands: system <help|version|quit|pause|resume|optimize>"""
         if len(parts) < 2:
-            return "Usage: system <help|version|quit|pause|resume>"
+            return "Usage: system <help|version|quit|pause|resume|optimize>"
         
         subcmd = parts[1].lower()
         
@@ -602,7 +549,7 @@ class GameScreen(Screen):
             self.app.exit()
             return "Quitting..."
         elif subcmd == 'help':
-            return "Available commands: create, delete, move, load, unload, robot, map, list, inspect, system, help"
+            return self._show_help()
         elif subcmd == 'version':
             return f"KaivosAI version {VERSION}"
         elif subcmd == 'pause':
@@ -613,72 +560,139 @@ class GameScreen(Screen):
             if self.clock:
                 self.clock.start()
             return "Clock resumed"
+        elif subcmd == 'optimize':
+            return self._optimize_ids()
         else:
             return f"Unknown system command: {subcmd}"
+    
+    def _show_help(self) -> str:
+        """Show help text."""
+        help_text = """COMMANDS:
+create <type> [x] [y]    - Create object (robot, mine, storage, base)
+delete <id>              - Delete object
+move <id> <x> <y>        - Move object
+robot <id> goto <x> <y>  - Move robot to coordinates
+list                     - List objects
+inspect <id>             - Show object details
+system version           - Show version
+system help              - Show this help
+system optimize          - Renumber IDs
+system pause/resume      - Control game clock
+help, ?                  - Show this help
+quit, q                  - Exit game"""
+        return help_text
+    
+    def _optimize_ids(self) -> str:
+        """Renumber all object IDs sequentially."""
+        if not self.game_map.cells:
+            return "No objects to optimize"
+        
+        try:
+            objects = sorted(self.game_map.cells.values(), key=lambda o: o.id)
+            id_map = {}
+            new_id = 1
+            for obj in objects:
+                id_map[obj.id] = new_id
+                new_id += 1
+            
+            old_cells = self.game_map.cells.copy()
+            self.game_map.cells = {}
+            
+            from .db import delete_object_db, persist_object
+            
+            for obj in objects:
+                old_id = obj.id
+                new_obj_id = id_map[old_id]
+                
+                if old_id != new_obj_id:
+                    delete_object_db(self.conn, old_id)
+                
+                obj.id = new_obj_id
+                self.game_map.cells[obj.pos] = obj
+                persist_object(self.conn, obj)
+            
+            count = len(objects)
+            return f"Optimized: renumbered {count} objects to 1-{count}"
+        except Exception as e:
+            return f"Optimization failed: {str(e)}"
+    
+    def action_quit(self) -> None:
+        """Quit application."""
+        self.app.exit()
+    
+    def action_help(self) -> None:
+        """Show help."""
+        if self.command_window:
+            self.command_window.add_output(self._show_help() + "\n")
 
 
 class GameApp(App):
     """Main Textual application for KaivosAI."""
     
     TITLE = "KaivosAI - Mining Simulator"
+    
     CSS = """
     Screen {
         layout: vertical;
     }
     
-    #left-panel {
+    #left-pane {
         width: 2fr;
         height: 1fr;
-        border: solid $accent;
+        overflow: auto;
     }
     
-    #right-panel {
+    #right-pane {
         width: 1fr;
-        height: 1fr;
-        border: solid $secondary;
+        height: auto;
+        overflow: auto;
     }
     
     #map {
-        border: solid $primary;
         width: 1fr;
         height: 1fr;
         overflow: auto;
     }
     
-    #objects {
-        border: solid $secondary;
+    #clock {
         width: 1fr;
         height: auto;
-        min-height: 10;
+    }
+    
+    #objects {
+        width: 1fr;
+        height: auto;
         overflow: auto;
     }
     
     #events {
-        border: solid $warning;
         width: 1fr;
         height: auto;
         overflow: auto;
     }
     
-    #bottom-panel {
-        height: auto;
-        border: solid $success;
-        padding: 1 2;
-    }
-    
-    CommandInput {
-        margin: 1 2;
+    #command {
         width: 1fr;
+        height: auto;
+        border: solid $accent;
     }
     
-    Static {
-        padding: 0 1;
+    #output-log {
+        width: 1fr;
+        height: auto;
+        border: none;
+        background: $surface;
+    }
+    
+    #command-input {
+        width: 1fr;
+        border-top: solid $primary;
+        margin: 1 2;
     }
     """
     
     BINDINGS = [
         Binding("q", "quit", "Quit", show=True),
-        Binding("?", "help", "Help", show=True),
     ]
     
     def __init__(self, game_map: Map, clock: Optional[GameClock] = None):
@@ -693,10 +707,6 @@ class GameApp(App):
     def action_quit(self) -> None:
         """Quit application."""
         self.exit()
-    
-    def action_help(self) -> None:
-        """Show help."""
-        pass  # TODO: implement help screen
 
 
 def run_textual_tui(db_path: str = "databases/game.db") -> None:
@@ -721,14 +731,11 @@ def run_textual_tui(db_path: str = "databases/game.db") -> None:
     # Load existing objects from database
     rows = load_objects_from_db(conn)
     for row in rows:
-        # Convert Row to dict for easier access with defaults
         row_dict = dict(row)
         pos = (row_dict['x'], row_dict['y'])
         
-        # Build kwargs from row_dict, only include fields that exist
         kwargs = {'id': row_dict['id'], 'pos': pos}
         
-        # Add optional fields if they exist in the row
         for field in ['stored', 'capacity', 'inventory', 'carrying_capacity', 'commands_text', 'durability', 'bank']:
             if field in row_dict and row_dict[field] is not None:
                 kwargs[field] = row_dict[field]
