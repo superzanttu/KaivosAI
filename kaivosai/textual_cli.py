@@ -77,8 +77,8 @@ COMMAND_ALIASES = {
 class MapDisplay(Static):
     """Widget rendering the 30x30 colored game map."""
     
-    def __init__(self, game_map: Map, name: str = "map"):
-        super().__init__(name=name)
+    def __init__(self, game_map: Map, name: str = "map", id: str = None):
+        super().__init__(name=name, id=id)
         self.game_map = game_map
         self.border_title = "MAP"
     
@@ -115,8 +115,8 @@ class MapDisplay(Static):
 class ObjectsPanel(Static):
     """Widget displaying list of game objects with status."""
     
-    def __init__(self, game_map: Map, name: str = "objects"):
-        super().__init__(name=name)
+    def __init__(self, game_map: Map, name: str = "objects", id: str = None):
+        super().__init__(name=name, id=id)
         self.game_map = game_map
         self.border_title = "OBJECTS"
     
@@ -129,6 +129,10 @@ class ObjectsPanel(Static):
         table.add_column("Status", style="white")
         
         for obj in sorted(self.game_map.cells.values(), key=lambda o: o.id):
+            # Skip rocks - they clutter the object list
+            if isinstance(obj, Rock):
+                continue
+            
             if isinstance(obj, Robot):
                 status = f"inv:{obj.inventory}/{obj.capacity}"
             elif isinstance(obj, (Mine, Storage)):
@@ -151,8 +155,8 @@ class ObjectsPanel(Static):
 class EventsPanel(Static):
     """Widget displaying scrollable game events log."""
     
-    def __init__(self, name: str = "events"):
-        super().__init__(name=name)
+    def __init__(self, name: str = "events", id: str = None):
+        super().__init__(name=name, id=id)
         self.events: List[str] = []
         self.border_title = "EVENTS"
     
@@ -238,12 +242,12 @@ class GameScreen(Screen):
         with Horizontal():
             # Left side: map (2/3 width)
             with Vertical(id="left-panel"):
-                yield MapDisplay(self.game_map)
+                yield MapDisplay(self.game_map, id="map")
             
             # Right side: objects, events (1/3 width)
             with Vertical(id="right-panel"):
-                yield ObjectsPanel(self.game_map)
-                self.events_panel = EventsPanel()
+                yield ObjectsPanel(self.game_map, id="objects")
+                self.events_panel = EventsPanel(id="events")
                 yield self.events_panel
         
         # Bottom: status and command input
@@ -259,6 +263,9 @@ class GameScreen(Screen):
         if self.clock:
             self.clock.start()
         self._refresh_clock()
+        
+        # Set up periodic refresh every 0.5 seconds to update map, objects, events
+        self.set_interval(0.5, self._refresh_displays)
     
     def on_command_input_command_submitted(self, message: CommandInput.CommandSubmitted) -> None:
         """Handle command submission."""
@@ -302,6 +309,19 @@ class GameScreen(Screen):
             self.status_bar.clock_display = (
                 f"W{weeks} D{days}  {hours:02d}:{minutes:02d}:{secs:02d}"
             )
+    
+    def _refresh_displays(self) -> None:
+        """Refresh all game panels (map, objects, events, clock)."""
+        # Find and refresh all display widgets
+        map_display = self.query_one("#map", MapDisplay)
+        objects_panel = self.query_one("#objects", ObjectsPanel)
+        events_panel = self.query_one("#events", EventsPanel)
+        
+        map_display.refresh()
+        objects_panel.refresh()
+        events_panel.refresh()
+        
+        self._refresh_clock()
     
     def _process_command(self, command_str: str) -> str:
         """Process natural language command (from original cli.py logic)."""
@@ -368,7 +388,7 @@ class GameScreen(Screen):
             x, y = random.randint(0, 29), random.randint(0, 29)
         
         try:
-            obj = create_object(obj_type, x, y)
+            obj = create_object(obj_type, pos=(x, y))
             self.game_map.add_object(obj, (x, y))
             return f"Created {obj_type} at ({x}, {y})"
         except Exception as e:
@@ -513,7 +533,7 @@ class GameScreen(Screen):
             for _ in range(10):
                 x, y = random.randint(0, 29), random.randint(0, 29)
                 if not self.game_map.get((x, y)):
-                    rock = Rock(x=x, y=y)
+                    rock = Rock(pos=(x, y))
                     self.game_map.add_object(rock, (x, y))
             return "Generated terrain (rocks)"
         elif subcmd == 'demo':
