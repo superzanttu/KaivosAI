@@ -35,6 +35,7 @@ from .map import Map
 from .models import Robot, Mine, Storage, Base, Rock, create_object
 from .clock import GameClock
 from .exceptions import CommandError, RobotError, MapError, ValidationError
+from .cli import CLIController
 from . import VERSION
 
 Position = Tuple[int, int]
@@ -322,6 +323,9 @@ class GameScreen(Screen):
         self.clock = clock
         self.conn = game_map.conn if hasattr(game_map, 'conn') else get_game_conn()
         
+        # Use CLIController for command processing (avoids code duplication)
+        self.cli = CLIController(game_map, clock, self.conn)
+        
         # Widgets
         self.map_display: Optional[MapDisplay] = None
         self.objects_panel: Optional[ObjectsPanel] = None
@@ -399,322 +403,43 @@ class GameScreen(Screen):
             # Show command with style
             self.command_window.add_output(f"[bold cyan]›[/bold cyan] {message.command}")
             
-            # Process and display result
-            result = self._process_command(message.command)
-            if result:
-                # Detect message type from command
-                cmd_lower = message.command.strip().lower().split()[0]
-                
-                if cmd_lower == 'help':
-                    # Help text - show as-is with markup
-                    self.command_window.add_output(result)
-                elif "error" in result.lower() or "failed" in result.lower() or "unknown" in result.lower():
-                    self.command_window.add_error(result)
-                elif "success" in result.lower() or "added" in result.lower() or "moved" in result.lower() or "created" in result.lower():
-                    self.command_window.add_success(result)
+            # Handle quit command specially (needs to exit app)
+            cmd_lower = message.command.strip().lower().split()[0] if message.command.strip() else ""
+            if cmd_lower in ('quit', 'q', 'exit'):
+                self.app.exit(return_code=0)
+                return
+            
+            # Process command through CLIController
+            try:
+                result = self.cli.process_command(message.command)
+                if result is not None:
+                    # Detect message type
+                    if cmd_lower == 'help':
+                        # Help text - show as-is with markup
+                        self.command_window.add_output(result)
+                    elif "error" in result.lower() or "failed" in result.lower() or "unknown" in result.lower():
+                        self.command_window.add_error(result)
+                    elif "success" in result.lower() or "added" in result.lower() or "moved" in result.lower() or "created" in result.lower():
+                        self.command_window.add_success(result)
+                    else:
+                        self.command_window.add_info(result)
                 else:
-                    self.command_window.add_info(result)
-            else:
-                self.command_window.add_error("Command returned no result")
-    
-    def _process_command(self, command_str: str) -> str:
-        """Process natural language command."""
-        command_str = command_str.strip()
-        if not command_str:
-            return "Empty command"
-        
-        parts = shlex.split(command_str)
-        if not parts:
-            return "Invalid command"
-        
-        # Expand aliases
-        primary = parts[0].lower()
-        if primary in COMMAND_ALIASES:
-            parts[0] = COMMAND_ALIASES[primary]
-        
-        cmd = parts[0].lower()
-        
-        # Route to handlers
-        if cmd == 'create':
-            return self._handle_create(parts)
-        elif cmd == 'delete':
-            return self._handle_delete(parts)
-        elif cmd == 'move' or cmd == 'goto':
-            return self._handle_move(parts)
-        elif cmd == 'load':
-            return self._handle_load(parts)
-        elif cmd == 'unload':
-            return self._handle_unload(parts)
-        elif cmd == 'robot':
-            return self._handle_robot(parts)
-        elif cmd == 'map':
-            return self._handle_map(parts)
-        elif cmd == 'list':
-            return self._handle_list(parts)
-        elif cmd == 'inspect':
-            return self._handle_inspect(parts)
-        elif cmd == 'system':
-            return self._handle_system(parts)
-        elif cmd == 'help':
-            return self._show_help()
-        elif cmd == 'quit':
-            self.app.exit()
-            return "Quitting..."
-        else:
-            return f"Unknown command: {cmd}. Type 'help' for commands."
-    
-    def _handle_create(self, parts: List[str]) -> str:
-        """Create object: create <type> [x] [y]"""
-        if len(parts) < 2:
-            return "Usage: create <robot|mine|storage|base|rock> [x] [y]"
-        
-        obj_type = parts[1].lower()
-        if obj_type not in ['robot', 'mine', 'storage', 'base', 'rock']:
-            return f"Unknown object type: {obj_type}"
-        
-        # Get position or random
-        if len(parts) >= 4:
-            try:
-                x, y = int(parts[2]), int(parts[3])
-            except ValueError:
-                return "Position must be integers"
-        else:
-            x, y = random.randint(0, 29), random.randint(0, 29)
-        
-        try:
-            obj = create_object(obj_type, pos=(x, y))
-            self.game_map.add_object(obj, (x, y))
-            return f"Created {obj_type} at ({x}, {y})"
-        except Exception as e:
-            return f"Failed to create {obj_type}: {str(e)}"
-    
-    def _handle_delete(self, parts: List[str]) -> str:
-        """Delete object: delete <id>"""
-        if len(parts) < 2:
-            return "Usage: delete <id>"
-        
-        try:
-            obj_id = int(parts[1])
-        except ValueError:
-            return "ID must be an integer"
-        
-        obj = self.game_map.get_object_by_id(obj_id)
-        if not obj:
-            return f"No object with ID {obj_id}"
-        
-        try:
-            self.game_map.remove_object(obj_id)
-            return f"Deleted object {obj_id}"
-        except Exception as e:
-            return f"Failed to delete object: {str(e)}"
-    
-    def _handle_move(self, parts: List[str]) -> str:
-        """Move robot: move <id> <x> <y>"""
-        if len(parts) < 4:
-            return "Usage: move <id> <x> <y>"
-        
-        try:
-            obj_id, x, y = int(parts[1]), int(parts[2]), int(parts[3])
-        except ValueError:
-            return "Arguments must be integers"
-        
-        obj = self.game_map.get_object_by_id(obj_id)
-        if not obj:
-            return f"No object with ID {obj_id}"
-        
-        if not isinstance(obj, Robot):
-            return "Only robots can move"
-        
-        try:
-            self.game_map.move_object(obj, (x, y))
-            return f"Moved robot {obj_id} to ({x}, {y})"
-        except Exception as e:
-            return f"Failed to move robot: {str(e)}"
-    
-    def _handle_load(self, parts: List[str]) -> str:
-        """Load materials: load <robot_id> [amount]"""
-        if len(parts) < 2:
-            return "Usage: load <robot_id> [amount]"
-        
-        try:
-            robot_id = int(parts[1])
-            amount = int(parts[2]) if len(parts) > 2 else None
-        except ValueError:
-            return "Arguments must be integers"
-        
-        robot = self.game_map.get_object_by_id(robot_id)
-        if not robot or not isinstance(robot, Robot):
-            return f"Robot {robot_id} not found"
-        
-        return "Load command not yet implemented in detail"
-    
-    def _handle_unload(self, parts: List[str]) -> str:
-        """Unload materials: unload <robot_id> [amount]"""
-        if len(parts) < 2:
-            return "Usage: unload <robot_id> [amount]"
-        
-        return "Unload command not yet implemented in detail"
-    
-    def _handle_robot(self, parts: List[str]) -> str:
-        """Robot commands: robot <id> <subcommand>"""
-        if len(parts) < 3:
-            return "Usage: robot <id> <goto|load|unload|code|start|pause>"
-        
-        try:
-            robot_id = int(parts[1])
-        except ValueError:
-            return "Robot ID must be integer"
-        
-        robot = self.game_map.get_object_by_id(robot_id)
-        if not robot or not isinstance(robot, Robot):
-            return f"Robot {robot_id} not found"
-        
-        subcmd = parts[2].lower()
-        
-        if subcmd == 'goto':
-            if len(parts) < 5:
-                return "Usage: robot <id> goto <x> <y>"
-            try:
-                x, y = int(parts[3]), int(parts[4])
-                self.game_map.move_object(robot, (x, y))
-                return f"Robot {robot_id} moving to ({x}, {y})"
+                    self.command_window.add_error("Command returned no result")
+            except (CommandError, RobotError, MapError, ValidationError) as e:
+                self.command_window.add_error(str(e))
             except Exception as e:
-                return f"Move failed: {str(e)}"
-        else:
-            return f"Robot subcommand '{subcmd}' not yet implemented"
-    
-    def _handle_map(self, parts: List[str]) -> str:
-        """Map commands: map [terrain]"""
-        if len(parts) > 1 and parts[1].lower() == 'terrain':
-            return "Terrain generation not yet implemented"
-        return "Map displayed in main window"
-    
-    def _handle_list(self, parts: List[str]) -> str:
-        """List objects: list"""
-        count = len([o for o in self.game_map.cells.values() if not isinstance(o, Rock)])
-        return f"Objects window shows {count} objects (excluding rocks)"
-    
-    def _handle_inspect(self, parts: List[str]) -> str:
-        """Inspect object: inspect <id>"""
-        if len(parts) < 2:
-            return "Usage: inspect <id>"
-        
-        try:
-            obj_id = int(parts[1])
-        except ValueError:
-            return "ID must be integer"
-        
-        obj = self.game_map.get_object_by_id(obj_id)
-        if not obj:
-            return f"No object with ID {obj_id}"
-        
-        details = f"{obj.__class__.__name__} #{obj.id} at {obj.pos}"
-        if hasattr(obj, 'inventory'):
-            details += f" | inventory: {obj.inventory}/{obj.capacity}"
-        if hasattr(obj, 'stored'):
-            details += f" | stored: {obj.stored}/{obj.capacity}"
-        
-        return details
-    
-    def _handle_system(self, parts: List[str]) -> str:
-        """System commands: system <help|version|quit|pause|resume|optimize>"""
-        if len(parts) < 2:
-            return "Usage: system <help|version|quit|pause|resume|optimize>"
-        
-        subcmd = parts[1].lower()
-        
-        if subcmd == 'quit':
-            self.app.exit()
-            return "Quitting..."
-        elif subcmd == 'help':
-            return self._show_help()
-        elif subcmd == 'version':
-            return f"KaivosAI version {VERSION}"
-        elif subcmd == 'pause':
-            if self.clock:
-                self.clock.pause()
-            return "Clock paused"
-        elif subcmd == 'resume':
-            if self.clock:
-                self.clock.start()
-            return "Clock resumed"
-        elif subcmd == 'optimize':
-            return self._optimize_ids()
-        else:
-            return f"Unknown system command: {subcmd}"
-    
-    def _show_help(self) -> str:
-        """Show help text with rich formatting."""
-        help_lines = [
-            "[bold cyan]═══════════════════════════════════════[/bold cyan]",
-            "[bold yellow]KAIVOSAI COMMAND REFERENCE[/bold yellow]",
-            "[bold cyan]═══════════════════════════════════════[/bold cyan]",
-            "",
-            "[bold green]OBJECT CREATION:[/bold green]",
-            "  create <type> [x] [y]  - Create robot|mine|storage|base|rock",
-            "",
-            "[bold green]OBJECT MANAGEMENT:[/bold green]",
-            "  delete <id>             - Delete object by ID",
-            "  move <id> <x> <y>       - Move object to coordinates",
-            "  inspect <id>            - Show object details",
-            "  list                    - List all objects",
-            "",
-            "[bold green]ROBOT CONTROL:[/bold green]",
-            "  robot <id> goto <x> <y> - Move robot to position",
-            "",
-            "[bold green]SYSTEM:[/bold green]",
-            "  system version          - Show KaivosAI version",
-            "  system pause/resume     - Control game clock",
-            "  system optimize         - Renumber object IDs",
-            "  system help             - Show this help",
-            "",
-            "[bold cyan]═══════════════════════════════════════[/bold cyan]",
-            "[dim]Type 'help' anytime for this reference[/dim]",
-        ]
-        return "\n".join(help_lines)
-    
-    def _optimize_ids(self) -> str:
-        """Renumber all object IDs sequentially."""
-        if not self.game_map.cells:
-            return "No objects to optimize"
-        
-        try:
-            objects = sorted(self.game_map.cells.values(), key=lambda o: o.id)
-            id_map = {}
-            new_id = 1
-            for obj in objects:
-                id_map[obj.id] = new_id
-                new_id += 1
-            
-            old_cells = self.game_map.cells.copy()
-            self.game_map.cells = {}
-            
-            from .db import delete_object_db, persist_object
-            
-            for obj in objects:
-                old_id = obj.id
-                new_obj_id = id_map[old_id]
-                
-                if old_id != new_obj_id:
-                    delete_object_db(self.conn, old_id)
-                
-                obj.id = new_obj_id
-                self.game_map.cells[obj.pos] = obj
-                persist_object(self.conn, obj)
-            
-            count = len(objects)
-            return f"Optimized: renumbered {count} objects to 1-{count}"
-        except Exception as e:
-            return f"Optimization failed: {str(e)}"
+                self.command_window.add_error(f"Unexpected error: {str(e)}")
     
     def action_quit(self) -> None:
         """Quit application."""
-        self.app.exit()
+        self.app.exit(return_code=0)
     
     def action_help(self) -> None:
         """Show help."""
         if self.command_window:
-            self.command_window.add_output(self._show_help() + "\n")
+            result = self.cli.process_command("help")
+            if result:
+                self.command_window.add_output(result + "\n")
 
 
 class GameApp(App):
@@ -821,7 +546,7 @@ class GameApp(App):
     
     def action_quit(self) -> None:
         """Quit application."""
-        self.exit()
+        self.exit(return_code=0)
 
 
 def run_textual_tui(db_path: str = "databases/game.db") -> None:

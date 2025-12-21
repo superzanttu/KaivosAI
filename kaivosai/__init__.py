@@ -4,7 +4,7 @@ Expose a small, explicit surface for consumers. `_legacy.py` remains
 in the package for compatibility but is not re-exported by default.
 """
 
-VERSION = "0.16.4"
+VERSION = "0.18.0"
 
 from .db import get_game_conn, init_game_db, load_objects_from_db
 from .map import Map
@@ -17,7 +17,6 @@ from .exceptions import (
     GameError, MapError, DatabaseError, CommandError, 
     RobotError, ValidationError
 )
-from . import config
 
 
 def run_demo(db_path: str = "databases/game.db"):
@@ -44,7 +43,6 @@ __all__ = [
 	'Rock',
 	'create_object',
 	'GameClock',
-	'config',
 	'GameError',
 	'MapError',
 	'DatabaseError',
