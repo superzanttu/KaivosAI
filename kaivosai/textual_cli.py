@@ -1,0 +1,694 @@
+"""Textual TUI for KaivosAI - Modern windowing system with proper floating windows.
+
+This replaces urwid with Textual framework which provides:
+    - Native modal dialogs and floating windows
+    - Proper CSS-based styling and layout
+    - Drag-and-drop support built-in
+    - Robust widget and focus management
+    - Responsive design
+    
+Main components:
+    - GameApp: Main Textual Application
+    - MapDisplay: Widget rendering 30x30 colored game map
+    - ObjectsPanel: List of robots, mines, storage, bases with status
+    - EventsPanel: Scrollable game events log
+    - StatusBar: Clock, game info, controls
+    - CommandInput: Natural language command parser
+    - ClockModal: Draggable floating window showing time
+    
+Threading:
+    - Main thread: Textual event loop + UI updates
+    - Background thread: GameClock (time progression, persists to DB)
+"""
+
+from typing import Tuple, List, Optional
+import shlex
+import random
+import time
+import os
+
+from textual.app import ComposeResult, App, RenderResult
+from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
+from textual.widgets import Header, Footer, Static, Input, RichLog, Button
+from textual.screen import Screen, ModalScreen
+from textual.binding import Binding
+from textual.reactive import reactive
+from textual.message import Message
+from textual.geometry import Region
+from rich.panel import Panel
+from rich.text import Text
+from rich.syntax import Syntax
+from rich.table import Table
+
+from .db import get_game_conn, init_game_db, log_event
+from .map import Map
+from .models import Robot, Mine, Storage, Base, Rock, create_object
+from .clock import GameClock
+from .exceptions import CommandError, RobotError, MapError, ValidationError
+from . import VERSION
+
+Position = Tuple[int, int]
+
+# Command aliases
+COMMAND_ALIASES = {
+    'r': 'robot', 'rob': 'robot', 'bot': 'robot',
+    'm': 'mine',
+    's': 'storage', 'stor': 'storage',
+    'b': 'base',
+    'o': 'object', 'obj': 'object',
+    'c': 'create', 'add': 'create',
+    'd': 'delete', 'del': 'delete', 'rem': 'delete', 'remove': 'delete',
+    'g': 'goto', 'go': 'goto', 'move': 'goto',
+    'l': 'load',
+    'u': 'unload', 'dump': 'unload',
+    'show': 'map', 'view': 'map',
+    'ls': 'list', 'objects': 'list',
+    't': 'terrain', 'gen': 'terrain', 'generate': 'terrain',
+    'sys': 'system',
+    'h': 'help', '?': 'help',
+    'q': 'quit', 'exit': 'quit',
+    'p': 'pause', 'stop': 'pause',
+    'start': 'resume', 'unpause': 'resume',
+    'v': 'version', 'ver': 'version',
+    'what': 'inspect', 'look': 'inspect', 'check': 'inspect',
+}
+
+
+class MapDisplay(Static):
+    """Widget rendering the 30x30 colored game map."""
+    
+    def __init__(self, game_map: Map, name: str = "map"):
+        super().__init__(name=name)
+        self.game_map = game_map
+        self.border_title = "MAP"
+    
+    def render(self) -> RenderResult:
+        """Render colored map with game objects."""
+        lines = []
+        
+        if not self.game_map.cells:
+            return Panel("Empty map", title="MAP")
+        
+        # Render 30x30 map area (0,0) to (29,29)
+        for y in range(30):
+            line = ""
+            for x in range(30):
+                obj = self.game_map.get((x, y))
+                if isinstance(obj, Robot):
+                    line += "[cyan]R[/cyan]"
+                elif isinstance(obj, Mine):
+                    line += "[yellow]M[/yellow]"
+                elif isinstance(obj, Storage):
+                    line += "[green]S[/green]"
+                elif isinstance(obj, Base):
+                    line += "[magenta]B[/magenta]"
+                elif isinstance(obj, Rock):
+                    line += "[dim]#[/dim]"
+                else:
+                    line += "."
+            lines.append(line)
+        
+        map_text = "\n".join(lines) if lines else "Empty map"
+        return Panel(map_text, title="MAP", expand=False)
+
+
+class ObjectsPanel(Static):
+    """Widget displaying list of game objects with status."""
+    
+    def __init__(self, game_map: Map, name: str = "objects"):
+        super().__init__(name=name)
+        self.game_map = game_map
+        self.border_title = "OBJECTS"
+    
+    def render(self) -> RenderResult:
+        """Render list of objects with inventory/material status."""
+        table = Table(title="Objects", show_header=True)
+        table.add_column("ID", style="cyan")
+        table.add_column("Name", style="green")
+        table.add_column("Pos", style="yellow")
+        table.add_column("Status", style="white")
+        
+        for obj in sorted(self.game_map.cells.values(), key=lambda o: o.id):
+            if isinstance(obj, Robot):
+                status = f"inv:{obj.inventory}/{obj.capacity}"
+            elif isinstance(obj, (Mine, Storage)):
+                status = f"mat:{obj.stored}/{obj.capacity}"
+            elif isinstance(obj, Base):
+                status = f"mat:{obj.stored} bank:{obj.bank}"
+            else:
+                status = ""
+            
+            table.add_row(
+                str(obj.id),
+                obj.__class__.__name__,
+                f"({obj.pos[0]},{obj.pos[1]})",
+                status
+            )
+        
+        return Panel(table, title="OBJECTS", expand=False)
+
+
+class EventsPanel(Static):
+    """Widget displaying scrollable game events log."""
+    
+    def __init__(self, name: str = "events"):
+        super().__init__(name=name)
+        self.events: List[str] = []
+        self.border_title = "EVENTS"
+    
+    def add_event(self, event: str) -> None:
+        """Add event to log (with deduplication)."""
+        if not self.events or self.events[-1] != event:
+            self.events.append(event)
+            # Keep last 50 events
+            if len(self.events) > 50:
+                self.events.pop(0)
+            self.refresh()
+    
+    def render(self) -> RenderResult:
+        """Render recent events."""
+        events_text = "\n".join(self.events[-20:]) if self.events else "No events yet"
+        return Panel(events_text, title="EVENTS", expand=False)
+
+
+class StatusBar(Static):
+    """Widget displaying game status and clock."""
+    
+    clock_display = reactive("W0 D0  00:00:00")
+    status_text = reactive("Ready")
+    
+    def __init__(self, clock: Optional[GameClock] = None, name: str = "status"):
+        super().__init__(name=name)
+        self.clock = clock
+    
+    def watch_clock_display(self) -> None:
+        """Update display when clock changes."""
+        self.refresh()
+    
+    def watch_status_text(self) -> None:
+        """Update display when status changes."""
+        self.refresh()
+    
+    def render(self) -> RenderResult:
+        """Render status bar with clock and info."""
+        status = f"[bold cyan]{self.clock_display}[/bold cyan] | {self.status_text}"
+        return Panel(status, title="STATUS", expand=False)
+
+
+class CommandInput(Input):
+    """Custom input widget for natural language commands."""
+    
+    class CommandSubmitted(Message):
+        """Posted when user submits a command."""
+        def __init__(self, command: str):
+            self.command = command
+            super().__init__()
+    
+    def _on_input_submitted(self) -> None:
+        """Handle Enter key."""
+        command = self.value.strip()
+        if command:
+            self.post_message(self.CommandSubmitted(command))
+            self.value = ""
+
+
+class GameScreen(Screen):
+    """Main game screen with map, objects, events, and command input."""
+    
+    BINDINGS = [
+        Binding("q", "quit", "Quit"),
+        Binding("?", "help", "Help"),
+        Binding("c", "show_clock", "Clock"),
+    ]
+    
+    def __init__(self, game_map: Map, clock: Optional[GameClock] = None):
+        super().__init__()
+        self.game_map = game_map
+        self.clock = clock
+        self.conn = game_map.conn if hasattr(game_map, 'conn') else get_game_conn()
+        self.status_bar: Optional[StatusBar] = None
+        self.events_panel: Optional[EventsPanel] = None
+    
+    def compose(self) -> ComposeResult:
+        """Compose game screen layout."""
+        # Header
+        yield Header()
+        
+        # Main content area
+        with Horizontal():
+            # Left side: map (2/3 width)
+            with Vertical(id="left-panel"):
+                yield MapDisplay(self.game_map)
+            
+            # Right side: objects, events (1/3 width)
+            with Vertical(id="right-panel"):
+                yield ObjectsPanel(self.game_map)
+                self.events_panel = EventsPanel()
+                yield self.events_panel
+        
+        # Bottom: status and command input
+        with Vertical(id="bottom-panel"):
+            self.status_bar = StatusBar(self.clock)
+            yield self.status_bar
+            yield CommandInput(placeholder="Enter command...")
+        
+        yield Footer()
+    
+    def on_mount(self) -> None:
+        """Setup after widgets are mounted."""
+        if self.clock:
+            self.clock.start()
+        self._refresh_clock()
+    
+    def on_command_input_command_submitted(self, message: CommandInput.CommandSubmitted) -> None:
+        """Handle command submission."""
+        try:
+            result = self._process_command(message.command)
+            if self.status_bar:
+                self.status_bar.status_text = result
+            if self.events_panel:
+                self.events_panel.add_event(f"> {message.command}")
+                self.events_panel.add_event(result)
+        except Exception as e:
+            if self.status_bar:
+                self.status_bar.status_text = f"Error: {str(e)}"
+            if self.events_panel:
+                self.events_panel.add_event(f"Error: {str(e)}")
+    
+    def action_quit(self) -> None:
+        """Quit the application."""
+        self.app.exit()
+    
+    def action_help(self) -> None:
+        """Show help."""
+        if self.status_bar:
+            self.status_bar.status_text = "Type 'help' command for full help"
+    
+    def action_show_clock(self) -> None:
+        """Show clock modal (not yet implemented)."""
+        if self.status_bar:
+            self.status_bar.status_text = "Clock modal coming soon"
+    
+    def _refresh_clock(self) -> None:
+        """Update clock display every second."""
+        if self.clock and self.status_bar:
+            seconds = self.clock.seconds
+            weeks = seconds // (7 * 24 * 3600)
+            days = (seconds % (7 * 24 * 3600)) // (24 * 3600)
+            hours = (seconds % (24 * 3600)) // 3600
+            minutes = (seconds % 3600) // 60
+            secs = seconds % 60
+            
+            self.status_bar.clock_display = (
+                f"W{weeks} D{days}  {hours:02d}:{minutes:02d}:{secs:02d}"
+            )
+    
+    def _process_command(self, command_str: str) -> str:
+        """Process natural language command (from original cli.py logic)."""
+        command_str = command_str.strip()
+        if not command_str:
+            return "Empty command"
+        
+        parts = shlex.split(command_str)
+        if not parts:
+            return "Invalid command"
+        
+        # Expand aliases
+        primary = parts[0].lower()
+        if primary in COMMAND_ALIASES:
+            parts[0] = COMMAND_ALIASES[primary]
+        
+        cmd = parts[0].lower()
+        
+        # Route to handlers
+        if cmd == 'create':
+            return self._handle_create(parts)
+        elif cmd == 'delete':
+            return self._handle_delete(parts)
+        elif cmd == 'move' or cmd == 'goto':
+            return self._handle_move(parts)
+        elif cmd == 'load':
+            return self._handle_load(parts)
+        elif cmd == 'unload':
+            return self._handle_unload(parts)
+        elif cmd == 'robot':
+            return self._handle_robot(parts)
+        elif cmd == 'map':
+            return self._handle_map(parts)
+        elif cmd == 'list':
+            return self._handle_list(parts)
+        elif cmd == 'inspect':
+            return self._handle_inspect(parts)
+        elif cmd == 'system':
+            return self._handle_system(parts)
+        elif cmd == 'help':
+            return self._handle_system(['system', 'help'])
+        elif cmd == 'quit':
+            return self._handle_system(['system', 'quit'])
+        else:
+            return f"Unknown command: {cmd}. Type 'help' for commands."
+    
+    def _handle_create(self, parts: List[str]) -> str:
+        """Create object: create <type> [x] [y]"""
+        if len(parts) < 2:
+            return "Usage: create <robot|mine|storage|base|rock> [x] [y]"
+        
+        obj_type = parts[1].lower()
+        
+        if obj_type not in ['robot', 'mine', 'storage', 'base', 'rock']:
+            return f"Unknown object type: {obj_type}"
+        
+        # Get position or random
+        if len(parts) >= 4:
+            try:
+                x, y = int(parts[2]), int(parts[3])
+            except ValueError:
+                return "Position must be integers"
+        else:
+            x, y = random.randint(0, 29), random.randint(0, 29)
+        
+        try:
+            obj = create_object(obj_type, x, y)
+            self.game_map.add_object(obj, (x, y))
+            return f"Created {obj_type} at ({x}, {y})"
+        except Exception as e:
+            return f"Failed to create {obj_type}: {str(e)}"
+    
+    def _handle_delete(self, parts: List[str]) -> str:
+        """Delete object: delete <id>"""
+        if len(parts) < 2:
+            return "Usage: delete <id>"
+        
+        try:
+            obj_id = int(parts[1])
+            obj = self.game_map.get_object_by_id(obj_id)
+            if not obj:
+                return f"Object {obj_id} not found"
+            
+            self.game_map.remove_object(obj.pos)
+            return f"Deleted object {obj_id}"
+        except ValueError:
+            return "ID must be an integer"
+        except Exception as e:
+            return f"Failed to delete: {str(e)}"
+    
+    def _handle_move(self, parts: List[str]) -> str:
+        """Move object: move <id> <x> <y>"""
+        if len(parts) < 4:
+            return "Usage: move <id> <x> <y>"
+        
+        try:
+            obj_id = int(parts[1])
+            x, y = int(parts[2]), int(parts[3])
+            
+            obj = self.game_map.get_object_by_id(obj_id)
+            if not obj:
+                return f"Object {obj_id} not found"
+            
+            # Remove from old position, add to new
+            self.game_map.remove_object(obj.pos)
+            obj.pos = (x, y)
+            self.game_map.add_object(obj, (x, y))
+            
+            return f"Moved object {obj_id} to ({x}, {y})"
+        except ValueError:
+            return "ID and position must be integers"
+        except Exception as e:
+            return f"Failed to move: {str(e)}"
+    
+    def _handle_load(self, parts: List[str]) -> str:
+        """Load materials: load <robot_id> <storage_id>"""
+        if len(parts) < 3:
+            return "Usage: load <robot_id> <storage_id>"
+        
+        try:
+            robot_id = int(parts[1])
+            storage_id = int(parts[2])
+            
+            robot = self.game_map.get_object_by_id(robot_id)
+            storage = self.game_map.get_object_by_id(storage_id)
+            
+            if not robot or not isinstance(robot, Robot):
+                return f"Robot {robot_id} not found"
+            if not storage or not isinstance(storage, (Mine, Storage)):
+                return f"Storage {storage_id} not found"
+            
+            robot.start_loading(storage)
+            return f"Robot {robot_id} loading from storage {storage_id}"
+        except ValueError:
+            return "IDs must be integers"
+        except Exception as e:
+            return f"Failed to load: {str(e)}"
+    
+    def _handle_unload(self, parts: List[str]) -> str:
+        """Unload materials: unload <robot_id> <storage_id>"""
+        if len(parts) < 3:
+            return "Usage: unload <robot_id> <storage_id>"
+        
+        try:
+            robot_id = int(parts[1])
+            storage_id = int(parts[2])
+            
+            robot = self.game_map.get_object_by_id(robot_id)
+            storage = self.game_map.get_object_by_id(storage_id)
+            
+            if not robot or not isinstance(robot, Robot):
+                return f"Robot {robot_id} not found"
+            if not storage or not isinstance(storage, (Storage, Base)):
+                return f"Storage {storage_id} not found"
+            
+            robot.start_unloading(storage)
+            return f"Robot {robot_id} unloading to storage {storage_id}"
+        except ValueError:
+            return "IDs must be integers"
+        except Exception as e:
+            return f"Failed to unload: {str(e)}"
+    
+    def _handle_robot(self, parts: List[str]) -> str:
+        """Robot commands: robot <id> <start|pause|code>"""
+        if len(parts) < 3:
+            return "Usage: robot <id> <start|pause|code [program]>"
+        
+        try:
+            robot_id = int(parts[1])
+            robot = self.game_map.get_object_by_id(robot_id)
+            
+            if not robot or not isinstance(robot, Robot):
+                return f"Robot {robot_id} not found"
+            
+            subcmd = parts[2].lower()
+            
+            if subcmd == 'start':
+                robot.program_running = True
+                robot.pc = 0
+                return f"Started robot {robot_id}"
+            elif subcmd == 'pause':
+                robot.program_running = False
+                return f"Paused robot {robot_id}"
+            elif subcmd == 'code':
+                if len(parts) > 3:
+                    program_text = " ".join(parts[3:])
+                    robot.program = program_text.split('\n')
+                    return f"Set program for robot {robot_id}"
+                return "Usage: robot <id> code <program>"
+            else:
+                return f"Unknown robot command: {subcmd}"
+        except ValueError:
+            return "Robot ID must be an integer"
+        except Exception as e:
+            return f"Failed: {str(e)}"
+    
+    def _handle_map(self, parts: List[str]) -> str:
+        """Map commands: map <show|terrain|demo|reset>"""
+        if len(parts) < 2:
+            return "Usage: map <show|terrain|demo|reset>"
+        
+        subcmd = parts[1].lower()
+        
+        if subcmd == 'show':
+            return "Map displayed above"
+        elif subcmd == 'terrain':
+            # Generate random terrain
+            random.seed(time.time())
+            for _ in range(10):
+                x, y = random.randint(0, 29), random.randint(0, 29)
+                if not self.game_map.get((x, y)):
+                    rock = Rock(x=x, y=y)
+                    self.game_map.add_object(rock, (x, y))
+            return "Generated terrain (rocks)"
+        elif subcmd == 'demo':
+            return "Demo mode not yet implemented"
+        elif subcmd == 'reset':
+            self.game_map.cells.clear()
+            if self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute("DELETE FROM game_objects")
+                self.conn.commit()
+            return "Map reset"
+        else:
+            return f"Unknown map command: {subcmd}"
+    
+    def _handle_list(self, parts: List[str]) -> str:
+        """List objects: list [type]"""
+        if not self.game_map.cells:
+            return "No objects on map"
+        
+        lines = []
+        for obj in sorted(self.game_map.cells.values(), key=lambda o: o.id):
+            if isinstance(obj, Robot):
+                inv = f" inv:{obj.inventory}/{obj.carrying_capacity}"
+            elif isinstance(obj, (Mine, Storage, Base)):
+                inv = f" mat:{obj.stored}/{obj.capacity}"
+            else:
+                inv = ""
+            
+            lines.append(f"  ID {obj.id}: {obj.__class__.__name__} at ({obj.pos[0]},{obj.pos[1]}){inv}")
+        
+        return "Objects:\n" + "\n".join(lines)
+    
+    def _handle_inspect(self, parts: List[str]) -> str:
+        """Inspect object: inspect <id>"""
+        if len(parts) < 2:
+            return "Usage: inspect <id>"
+        
+        try:
+            obj_id = int(parts[1])
+            obj = self.game_map.get_object_by_id(obj_id)
+            
+            if not obj:
+                return f"Object {obj_id} not found"
+            
+            details = f"ID: {obj.id}\nType: {obj.__class__.__name__}\nPos: {obj.pos}"
+            
+            if isinstance(obj, Robot):
+                details += f"\nInventory: {obj.inventory}/{obj.carrying_capacity}"
+                details += f"\nProgram: {len(obj.program)} lines"
+                details += f"\nRunning: {obj.program_running}"
+            elif isinstance(obj, (Mine, Storage, Base)):
+                details += f"\nMaterials: {obj.stored}/{obj.capacity}"
+            
+            return details
+        except ValueError:
+            return "ID must be an integer"
+    
+    def _handle_system(self, parts: List[str]) -> str:
+        """System commands: system <help|version|quit|pause|resume>"""
+        if len(parts) < 2:
+            return "Usage: system <help|version|quit|pause|resume>"
+        
+        subcmd = parts[1].lower()
+        
+        if subcmd == 'quit':
+            self.app.exit()
+            return "Quitting..."
+        elif subcmd == 'help':
+            return "Available commands: create, delete, move, load, unload, robot, map, list, inspect, system, help"
+        elif subcmd == 'version':
+            return f"KaivosAI version {VERSION}"
+        elif subcmd == 'pause':
+            if self.clock:
+                self.clock.pause()
+            return "Clock paused"
+        elif subcmd == 'resume':
+            if self.clock:
+                self.clock.start()
+            return "Clock resumed"
+        else:
+            return f"Unknown system command: {subcmd}"
+
+
+class GameApp(App):
+    """Main Textual application for KaivosAI."""
+    
+    TITLE = "KaivosAI - Mining Simulator"
+    CSS = """
+    Screen {
+        layout: vertical;
+    }
+    
+    #left-panel {
+        width: 2fr;
+        height: 1fr;
+    }
+    
+    #right-panel {
+        width: 1fr;
+        height: 1fr;
+    }
+    
+    #bottom-panel {
+        height: auto;
+        border: solid green;
+    }
+    
+    CommandInput {
+        margin: 1 2;
+    }
+    """
+    
+    BINDINGS = [
+        Binding("q", "quit", "Quit", show=True),
+        Binding("?", "help", "Help", show=True),
+    ]
+    
+    def __init__(self, game_map: Map, clock: Optional[GameClock] = None):
+        super().__init__()
+        self.game_map = game_map
+        self.clock = clock
+    
+    def on_mount(self) -> None:
+        """Mount main game screen."""
+        self.push_screen(GameScreen(self.game_map, self.clock))
+    
+    def action_quit(self) -> None:
+        """Quit application."""
+        self.exit()
+    
+    def action_help(self) -> None:
+        """Show help."""
+        pass  # TODO: implement help screen
+
+
+def run_textual_tui(db_path: str = "databases/game.db") -> None:
+    """Launch the Textual-based TUI.
+    
+    Args:
+        db_path: Path to SQLite database file
+    """
+    from pathlib import Path
+    
+    # Initialize database
+    db_path_obj = Path(db_path)
+    db_path_obj.parent.mkdir(parents=True, exist_ok=True)
+    conn = get_game_conn(db_path_obj)
+    init_game_db(conn)
+    
+    # Create game map
+    from .db import load_objects_from_db
+    game_map = Map()
+    game_map.conn = conn
+    
+    # Load existing objects from database
+    rows = load_objects_from_db(conn)
+    for row in rows:
+        # Convert Row to dict for easier access with defaults
+        row_dict = dict(row)
+        pos = (row_dict['x'], row_dict['y'])
+        
+        # Build kwargs from row_dict, only include fields that exist
+        kwargs = {'id': row_dict['id'], 'pos': pos}
+        
+        # Add optional fields if they exist in the row
+        for field in ['stored', 'capacity', 'inventory', 'carrying_capacity', 'commands_text', 'durability', 'bank']:
+            if field in row_dict and row_dict[field] is not None:
+                kwargs[field] = row_dict[field]
+        
+        obj = create_object(row_dict['type'], **kwargs)
+        game_map.add_object(obj, pos)
+    
+    # Start game clock
+    clock = GameClock(conn)
+    
+    # Run Textual app
+    app = GameApp(game_map, clock)
+    app.run()

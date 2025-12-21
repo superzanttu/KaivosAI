@@ -242,6 +242,20 @@ class Map:
             details={"id": oid}
         )
 
+    def get_object_by_id(self, obj_id: int):
+        """Get object by its ID.
+        
+        Args:
+            obj_id: Unique object ID
+            
+        Returns:
+            Object with matching ID or None if not found
+        """
+        for obj in self.cells.values():
+            if obj.id == obj_id:
+                return obj
+        return None
+
     def move_object(self, from_pos: Position, to_pos: Position):
         """Move object from one position to another instantly.
         

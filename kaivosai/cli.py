@@ -889,37 +889,39 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
     status_text = urwid.Text('', align='left')
     command_input = CommandEdit('> ')
 
-    # Floating clock setup (draggable overlay)
-    class DraggableClock(urwid.WidgetWrap):
-        """LineBox wrapper that supports mouse dragging to reposition overlay."""
-        def __init__(self, widget, on_drag):
+    # Simple draggable window that works with overlays
+    class DraggableWindow(urwid.WidgetWrap):
+        """Non-selectable window that can be dragged from title bar."""
+        def __init__(self, content, title, on_drag):
             self._dragging = False
             self._last = (0, 0)
             self._on_drag = on_drag
-            super().__init__(widget)
+            boxed = urwid.LineBox(content, title=title)
+            super().__init__(boxed)
 
         def selectable(self):
-            return True
+            return False
 
         def mouse_event(self, size, event, button, col, row, focus):
-            if event == 'mouse press' and button == 1:
-                self._dragging = True
-                self._last = (col, row)
-                return True
-            if event == 'mouse release' and button == 1:
-                self._dragging = False
-                return True
-            if event == 'mouse drag' and button == 1 and self._dragging:
-                dx = col - self._last[0]
-                dy = row - self._last[1]
-                self._last = (col, row)
-                try:
-                    self._on_drag(dx, dy)
-                except Exception:
-                    pass
-                return True
-            return super().mouse_event(size, event, button, col, row, focus)
+            # Drag from top 2 rows (border + title)
+            if row <= 1:
+                if event == 'mouse press' and button == 1:
+                    self._dragging = True
+                    self._last = (col, row)
+                    return True
+                if event == 'mouse release' and button == 1:
+                    self._dragging = False
+                    return True
+                if event == 'mouse drag' and button == 1 and self._dragging:
+                    dx = col - self._last[0]
+                    dy = row - self._last[1]
+                    self._last = (col, row)
+                    if self._on_drag:
+                        self._on_drag(dx, dy)
+                    return True
+            return False
 
+    # Build static layout as base
     map_box = urwid.LineBox(urwid.Filler(map_text, valign='top'), title='Map')
     info_pile = urwid.Pile([
         urwid.LineBox(urwid.Filler(object_list_text, valign='top'), title='Objects'),
@@ -929,45 +931,46 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         ('weight', 2, map_box),
         ('weight', 1, info_pile),
     ])
-
     main_pile = urwid.Pile([
         ('weight', 1, top_columns),
         ('pack', urwid.LineBox(status_text, title='Status')),
         ('pack', urwid.LineBox(command_input, title='Command (help, quit)')),
     ])
+    main_pile.focus_position = 2
 
-    # Floating clock overlay state and helpers
-    clock_box = urwid.LineBox(clock_text, title=f'Clock - KaivosAI v{VERSION}')
-    clock_overlay_state = {'left': 2, 'top': 1, 'width': 28}
-    ui_state = {'base': main_pile}
-    loop = None  # Will be assigned after helper definitions
+    # Floating clock overlay
+    clock_state = {'left': 2, 'top': 1}
+    loop = None
+
+    # Floating clock overlay
+    clock_state = {'left': 2, 'top': 1}
+    loop = None
+
+    def on_clock_drag(dx, dy):
+        clock_state['left'] = max(0, clock_state['left'] + dx)
+        clock_state['top'] = max(0, clock_state['top'] + dy)
+        rebuild_root()
 
     def rebuild_root():
-        """Wrap current base widget with floating clock overlay."""
+        clock_window = DraggableWindow(clock_text, f'Clock - KaivosAI v{VERSION}', on_clock_drag)
         overlay = urwid.Overlay(
-            draggable_clock,
-            ui_state['base'],
+            clock_window,
+            main_pile,
             align='left',
-            left=clock_overlay_state['left'],
-            width=clock_overlay_state['width'],
+            left=clock_state['left'],
+            width=28,
             valign='top',
-            top=clock_overlay_state['top'],
-            height='pack'
+            top=clock_state['top'],
+            height=3
         )
         if loop:
             loop.widget = overlay
         return overlay
 
-    def on_clock_drag(dx: int, dy: int):
-        clock_overlay_state['left'] = max(0, clock_overlay_state['left'] + dx)
-        clock_overlay_state['top'] = max(0, clock_overlay_state['top'] + dy)
-        rebuild_root()
-
-    draggable_clock = DraggableClock(clock_box, on_clock_drag)
-
     def set_base_widget(widget):
-        """Update the base UI widget and reapply floating clock overlay."""
-        ui_state['base'] = widget
+        """Switch base widget for modals."""
+        nonlocal main_pile
+        main_pile = widget
         rebuild_root()
 
     # Editor state: track which robot's commands are being edited
@@ -2437,6 +2440,7 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
         pass
 
     loop = urwid.MainLoop(rebuild_root(), palette=palette, unhandled_input=handle_input, screen=screen, handle_mouse=True)
+    
     # Schedule immediate refresh after loop starts (0.01s delay ensures loop is running)
     loop.set_alarm_in(0.01, refresh_display)
     loop.run()
