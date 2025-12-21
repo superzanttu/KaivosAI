@@ -122,11 +122,11 @@ class ObjectsPanel(Static):
     
     def render(self) -> RenderResult:
         """Render list of objects with inventory/material status."""
-        table = Table(title="Objects", show_header=True)
-        table.add_column("ID", style="cyan")
-        table.add_column("Name", style="green")
-        table.add_column("Pos", style="yellow")
-        table.add_column("Status", style="white")
+        table = Table(title="Objects", show_header=True, expand=True)
+        table.add_column("ID", style="cyan", width=6)
+        table.add_column("Name", style="green", width=10)
+        table.add_column("Pos", style="yellow", width=8)
+        table.add_column("Status", style="white", width=15)
         
         for obj in sorted(self.game_map.cells.values(), key=lambda o: o.id):
             # Skip rocks - they clutter the object list
@@ -149,7 +149,7 @@ class ObjectsPanel(Static):
                 status
             )
         
-        return Panel(table, title="OBJECTS", expand=False)
+        return Panel(table, title="OBJECTS", expand=True)
 
 
 class EventsPanel(Static):
@@ -238,14 +238,14 @@ class GameScreen(Screen):
         # Header
         yield Header()
         
-        # Main content area
+        # Main content area: Map on left, Objects/Events on right
         with Horizontal():
             # Left side: map (2/3 width)
             with Vertical(id="left-panel"):
                 yield MapDisplay(self.game_map, id="map")
             
-            # Right side: objects, events (1/3 width)
-            with Vertical(id="right-panel"):
+            # Right side: objects, events (1/3 width) - scrollable
+            with ScrollableContainer(id="right-panel"):
                 yield ObjectsPanel(self.game_map, id="objects")
                 self.events_panel = EventsPanel(id="events")
                 yield self.events_panel
@@ -629,20 +629,50 @@ class GameApp(App):
     #left-panel {
         width: 2fr;
         height: 1fr;
+        border: solid $accent;
     }
     
     #right-panel {
         width: 1fr;
         height: 1fr;
+        border: solid $secondary;
+    }
+    
+    #map {
+        border: solid $primary;
+        width: 1fr;
+        height: 1fr;
+        overflow: auto;
+    }
+    
+    #objects {
+        border: solid $secondary;
+        width: 1fr;
+        height: auto;
+        min-height: 10;
+        overflow: auto;
+    }
+    
+    #events {
+        border: solid $warning;
+        width: 1fr;
+        height: auto;
+        overflow: auto;
     }
     
     #bottom-panel {
         height: auto;
-        border: solid green;
+        border: solid $success;
+        padding: 1 2;
     }
     
     CommandInput {
         margin: 1 2;
+        width: 1fr;
+    }
+    
+    Static {
+        padding: 0 1;
     }
     """
     
