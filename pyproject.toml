@@ -7,7 +7,7 @@ requires-python = ">=3.8"
 authors = [ { name = "KaivosAI Author" } ]
 
 dependencies = [
-	"urwid>=2.1"
+	"textual>=0.20.0"
 ]
 prompt_toolkit = ["prompt_toolkit>=3.0"]
 

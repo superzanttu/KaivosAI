@@ -745,6 +745,7 @@ def run_textual_tui(db_path: str = "databases/game.db") -> None:
     
     # Start game clock
     clock = GameClock(conn)
+    clock.start()  # Start the background clock thread
     
     # Run Textual app
     app = GameApp(game_map, clock)

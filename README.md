@@ -22,7 +22,7 @@ Or run the package CLI directly:
 python -m kaivosai.cli
 ```
 
-The TUI uses [Urwid](https://urwid.org/) to display:
+The TUI uses [Textual](https://textual.textualize.io/) framework to display:
 - **Map panel**: live ASCII map with auto-centering and rock-bordered terrain
 - **Objects panel**: real-time list of game objects (robots, mines, storage, bases)
 - **Clock panel**: Week/Day counter plus HH:MM:SS game time
@@ -130,13 +130,13 @@ Helper script `commit_and_push.ps1` automates git commits. If PowerShell blocks,
 
 ### Dependencies
 
-Install Urwid for TUI support:
+Install Textual for TUI support:
 
 ```powershell
-python -m pip install urwid
+python -m pip install textual
 ```
 
-Urwid is required to run the game.
+Textual is required to run the game.
 
 ### Testing & Coverage
 

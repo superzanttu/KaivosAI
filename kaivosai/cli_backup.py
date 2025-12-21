@@ -1,23 +1,29 @@
-"""CLI and Urwid TUI for KaivosAI."""
-from typing import Tuple, List
-import shlex
+"""DEPRECATED: Legacy Urwid CLI backup removed.
 
-from .db import get_game_conn, init_game_db
-from .map import Map
-from .models import Robot, Mine, Storage, Base, Rock, create_object
-from .clock import GameClock
+This file was a backup of the old Urwid-based CLI implementation.
+It is no longer used or maintained.
 
-Position = Tuple[int, int]
+Current implementation:
+    - cli.py: CLIController for command processing (UI-agnostic)
+    - textual_cli.py: Textual-based TUI (modern framework)
 
-# Try to import Urwid; if unavailable, fall back to old REPL
-try:
-    import urwid  # type: ignore
-    URWID_AVAILABLE = True
-except ImportError:
-    URWID_AVAILABLE = False
+The old file was safely removed as all functionality has been migrated to the new
+framework while maintaining backward compatibility through CLIController.
+"""
+
+# This file should not be imported or used.
+# Please use the current implementations instead.
+raise ImportError(
+    "This module is deprecated.\n"
+    "Use 'from kaivosai.cli import CLIController' for command processing,\n"
+    "or 'from kaivosai.textual_cli import run_textual_tui' for the TUI."
+)
 
 
-def repl(game_map: Map):
+# All content below this point has been removed.
+# The old REPL and Urwid TUI implementations are no longer maintained.
+# See kaivosai/cli.py and kaivosai/textual_cli.py for current implementations.
+
     import shlex
 
     def show_help():

@@ -1,14 +1,19 @@
-"""Real-time TUI viewer for KaivosAI using Urwid.
+"""Deprecated: Legacy Urwid viewer removed.
 
-Polls the `game.db` and renders an ASCII viewport centered on objects.
+The old Urwid-based read-only viewer (run_viewer) has been removed.
+The actual TUI is now provided by textual_cli.py using the Textual framework.
+
+For monitoring and viewing the game state, use:
+    python -m kaivosai  # Launches the Textual-based TUI
+
+Utility functions build_grid_text() and auto_bounds() remain for reference
+if you need to build simple ASCII displays, but they are not used by the main TUI.
 """
-from typing import List
 
-from .db import get_game_conn
-from .clock import GameClock
+from typing import List, Tuple
 
 
-def auto_bounds(rows):
+def auto_bounds(rows) -> Tuple[int, int, int, int]:
     """Compute viewport bounds centered around existing objects.
 
     Args:
@@ -31,8 +36,9 @@ def auto_bounds(rows):
     return minx, maxx, miny, maxy
 
 
-def build_grid_text(rows, minx, maxx, miny, maxy, header: str = "") -> str:
-    """Render a simple ASCII grid representation of game objects.
+def build_grid_text(rows, minx: int, maxx: int, miny: int, maxy: int, 
+                   header: str = "") -> str:
+    """Render ASCII grid display (legacy reference).
 
     Args:
         rows: Iterable of rows with 'x', 'y', and 'type'
@@ -44,10 +50,10 @@ def build_grid_text(rows, minx, maxx, miny, maxy, header: str = "") -> str:
 
     Returns:
         Multi-line string with coordinates and legend.
-
+    
     Note:
         Uses first letter of type as symbol: R/M/S/B/#.
-        Limits region to 160x80 to avoid overly large render.
+        This function is kept for reference but not used in current TUI.
     """
     w = maxx - minx + 1
     h = maxy - miny + 1
@@ -78,62 +84,22 @@ def build_grid_text(rows, minx, maxx, miny, maxy, header: str = "") -> str:
 
 
 def run_viewer(poll_seconds: float = 0.5):
-    """Run the read-only Urwid viewer that polls the database.
-
-    Args:
-        poll_seconds: Refresh interval in seconds (default 0.5s)
-
-    Note:
-        - Read-only: never writes to the database
-        - Displays object count and clock (if available)
-        - Quit with 'q', 'Q', or ESC
-    """
-    import urwid  # type: ignore
+    """Deprecated: Urwid viewer removed.
     
-    conn = get_game_conn()
-
-    try:
-        clock = GameClock(conn)
-    except Exception:
-        clock = None
-
-    text = urwid.Text('', align='left')
-    fill = urwid.Filler(text, valign='top')
-
-    def refresh(loop, user_data=None):
-        """Refresh the grid text and reschedule next update."""
-        try:
-            rows = list(conn.execute('SELECT id,name,x,y,type FROM game_objects'))
-        except Exception:
-            rows = []
-        minx, maxx, miny, maxy = auto_bounds(rows)
-        if clock:
-            try:
-                sec = clock.seconds
-                hh = (sec % 86400) // 3600
-                mm = (sec % 3600) // 60
-                ss = sec % 60
-                colon = ':' if (ss % 2) == 0 else ' '
-                clock_str = f"{hh:02d}{colon}{mm:02d}{colon}{ss:02d}"
-            except Exception:
-                clock_str = "--:--:--"
-        else:
-            clock_str = "--:--:--"
-        header = f"KaivosAI Viewer — {len(rows)} objects — {clock_str} — refresh {poll_seconds}s"
-        text.set_text(build_grid_text(rows, minx, maxx, miny, maxy, header))
-        loop.set_alarm_in(poll_seconds, refresh)
-
-    def unhandled(key):
-        """Handle quit keys for viewer loop."""
-        if key in ('q', 'Q', 'esc'):
-            raise urwid.ExitMainLoop()
-
-    loop = urwid.MainLoop(fill, unhandled_input=unhandled)
-    refresh(loop)
-    try:
-        loop.run()
-    finally:
-        conn.close()
+    Use the Textual-based TUI instead:
+        python -m kaivosai
+    
+    Original purpose:
+        - Read-only viewer that polled the game.db
+        - Displayed objects in an ASCII grid format
+        - Updated every poll_seconds (default 0.5s)
+    
+    This function is no longer available. Use the main TUI.
+    """
+    raise NotImplementedError(
+        "The Urwid-based viewer has been removed.\n"
+        "Use the main TUI instead: python -m kaivosai"
+    )
 
 
 if __name__ == '__main__':

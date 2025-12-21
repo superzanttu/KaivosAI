@@ -1,36 +1,22 @@
-"""CLI and Urwid TUI for KaivosAI.
+"""CLIController for command processing (UI-agnostic).
 
-Main user interface providing:
-    - Terminal-based UI using Urwid library
-    - Natural language command processor with aliases
-    - Colored map display (robots, mines, storage, bases, rocks)
-    - Object list with inventory/material status
-    - Recent events display
-    - RoboBASIC code editor with syntax validation
-    - Game clock display (Week/Day/Time format)
-    - Auto-refresh every 0.5s for real-time updates
-    
-Key components:
-    - run_urwid_tui(): Main TUI loop (entry point)
-    - process_command(): Natural language command parser (~500 lines)
-    - build_map_display(): Colored ASCII map with legend
-    - build_object_list(): Object status with materials/inventory
-    - build_events_display(): Recent game events log
-    - show_command_editor(): Robot code editor with validation
-    
-Command categories:
+Provides natural language command parsing:
     - Object management: create, delete, move
     - Robot control: goto, load, unload, code/start/pause
     - Map operations: show, list, terrain, demo, reset
     - System: help, version, quit, pause, resume
-    
-Threading:
-    - Main thread: Urwid event loop + UI refresh
-    - Background thread: GameClock (time progression)
-    
+    - Inspect: shows details about objects at coordinates
+
+Key components:
+    - CLIController: Command parser accepting game_map, clock, conn
+    - process_command(): Natural language parser (~500 lines)
+    - expand_aliases(): Maps short forms to full command names
+    - _build_help_text(): Help text generation
+
 Note:
-    Display updates 2x per second (0.5s tick rate).
-    All game logic ticks (movement, production, transfers, programs) called from refresh_display().
+    This module provides UI-agnostic command logic.
+    The TUI rendering is handled by textual_cli.py (Textual framework).
+    For testing: use CLIController directly without UI initialization.
 """
 from typing import Tuple, List
 import shlex
@@ -47,7 +33,7 @@ from . import VERSION
 
 Position = Tuple[int, int]
 
-import urwid  # type: ignore
+# Note: Urwid UI removed - see textual_cli.py for TUI rendering
 
 # Command aliases (short -> full form)
 COMMAND_ALIASES = {
@@ -202,14 +188,14 @@ class CLIController:
     def _handle_system(self, parts: list) -> str:
         from .models import Robot, Mine, Storage, Base
         from .db import persist_object
-        import urwid
 
         if len(parts) < 2:
             return 'Usage: system <help|version|quit|pause|resume|optimize>'
         sub = parts[1]
 
         if sub == 'quit':
-            raise urwid.ExitMainLoop()
+            # Quit is handled at UI level in textual_cli.py
+            return 'Goodbye!'
         if sub == 'help':
             return self._build_help_text()
         if sub == 'version':
@@ -704,8 +690,8 @@ class CLIController:
             return handlers[first](parts)
 
         if first == 'quit':
-            import urwid
-            raise urwid.ExitMainLoop()
+            # Quit is handled at UI level
+            return 'Goodbye!'
 
         if first == 'help':
             return self._build_help_text()
@@ -737,58 +723,7 @@ class CLIController:
 
         return f"I don't understand '{cmd_line}'. Type 'help' or 'system help' for commands."
 
-class CommandEdit(urwid.Edit):
-    """Edit widget with tab completion support."""
-    
-    def __init__(self, *args, **kwargs):
-        """Initialize edit widget and tab completion state."""
-        super().__init__(*args, **kwargs)
-        self.completions = COMPLETIONS
-        self.completion_index = -1
-        self.original_text = ""
-    
-    def keypress(self, size, key):
-        """Handle Tab-based completions; delegate other keys to parent.
-
-        Starts a completion cycle on first Tab for the last word,
-        cycles through matches on subsequent Tabs, and resets the
-        cycle on any non-Tab key.
-        """
-        if key == 'tab':
-            text = self.get_edit_text()
-            
-            # Start new completion cycle
-            if self.completion_index == -1:
-                self.original_text = text
-                words = text.split()
-                if not words:
-                    return
-                
-                # Get last word for completion
-                last_word = words[-1] if words else ""
-                prefix = " ".join(words[:-1]) + (" " if len(words) > 1 else "")
-                
-                # Find matching completions
-                matches = [c for c in self.completions if c.startswith(last_word)]
-                
-                if matches:
-                    self.completion_matches = matches
-                    self.completion_prefix = prefix
-                    self.completion_index = 0
-                    self.set_edit_text(prefix + matches[0])
-                    self.set_edit_pos(len(self.get_edit_text()))
-            else:
-                # Cycle through matches
-                self.completion_index = (self.completion_index + 1) % len(self.completion_matches)
-                self.set_edit_text(self.completion_prefix + self.completion_matches[self.completion_index])
-                self.set_edit_pos(len(self.get_edit_text()))
-            
-            return
-        else:
-            # Reset completion on any other key
-            self.completion_index = -1
-            return super().keypress(size, key)
-
+# Note: CommandEdit (Urwid widget) removed - see textual_cli.py for UI widgets
 
 def expand_aliases(parts: List[str]) -> List[str]:
     """Expand command aliases to their full form.
@@ -2439,11 +2374,19 @@ def run_urwid_tui(game_map: Map, clock: GameClock, conn):
     except Exception:
         pass
 
-    loop = urwid.MainLoop(rebuild_root(), palette=palette, unhandled_input=handle_input, screen=screen, handle_mouse=True)
-    
-    # Schedule immediate refresh after loop starts (0.01s delay ensures loop is running)
-    loop.set_alarm_in(0.01, refresh_display)
-    loop.run()
+
+
+# Note: run_urwid_tui() Urwid implementation (lines 762-2377) removed
+# Use run_textual_tui() from textual_cli.py instead
+#
+# The Urwid MainLoop code had:
+#   - Color palette definition
+#   - Text widgets for map, objects, events, clock, status
+#   - CommandEdit widget with tab completion
+#   - DraggableWindow class for overlay windows
+#   - Various helper functions for rendering and display
+#
+# All of this is now replaced by Textual framework in textual_cli.py
 
 
 def run_demo():
@@ -2456,12 +2399,12 @@ def run_demo():
         - Demo objects (robots, mines, storage, bases) in random positions
         
     Note:
-        - Entry point called from kaivosai.py
+        - Entry point called from kaivosai.py (legacy compatibility wrapper)
         - Database: databases/game.db (auto-created)
         - Only generates terrain/objects if database empty
         - Uses strong randomization: time.time() * 1e6 + os.urandom(4)
         - Rock density: 0.03 (3%), cluster size: 4
-        - Launches Urwid TUI with run_urwid_tui()
+        - Launches Textual TUI via run_textual_tui() from textual_cli.py
     """
     conn = get_game_conn()
     init_game_db(conn)
@@ -2507,9 +2450,10 @@ def run_demo():
         else:
             print("Not enough free positions for demo objects!")
 
-    # Launch Urwid TUI
+    # Launch Textual TUI (see textual_cli.py for actual implementation)
     try:
-        run_urwid_tui(game_map, clock, conn)
+        from .textual_cli import run_textual_tui
+        run_textual_tui()
     finally:
-        clock.stop()  # Stop immediately (no try/except to mask errors)
+        clock.stop()
         conn.close()
