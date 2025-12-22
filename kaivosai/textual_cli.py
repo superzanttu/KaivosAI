@@ -271,7 +271,7 @@ class CommandWindow(Static):
     def compose(self) -> ComposeResult:
         """Compose command window with help text."""
         # Header with info
-        info_text = "[dim]KaivosAI Command Line[/dim] · [cyan]type 'help' for commands[/cyan]"
+        info_text = f"[dim]KaivosAI v{VERSION} Command Line[/dim] · [cyan]type 'help' for commands[/cyan]"
         yield Static(info_text, id="command-info", classes="panel-header")
         
         # Output log
@@ -454,7 +454,7 @@ class GameScreen(Screen):
 class GameApp(App):
     """Main Textual application for KaivosAI."""
     
-    TITLE = "KaivosAI - Mining Simulator"
+    TITLE = f"KaivosAI v{VERSION} - Mining Simulator"
     
     CSS = """
     Screen {
@@ -599,3 +599,11 @@ def run_textual_tui(db_path: str = "databases/game.db") -> None:
     # Run Textual app
     app = GameApp(game_map, clock)
     app.run()
+
+# Test CLIController and Map initialization
+from kaivosai.cli import CLIController
+from kaivosai.map import Map
+from kaivosai.db import get_game_conn
+m = Map(30, 30, get_game_conn())
+cli = CLIController(m, None, m.conn)
+print(cli.process_command("help")[:80])
