@@ -1,0 +1,37 @@
+Screen {
+    layout: grid;
+    grid-size: 4 2;
+}
+
+#map {
+    column-span: 2;
+    row-span: 2;
+
+}
+
+#commands {
+    column-span: 1;
+    row-span: 2;
+
+}
+
+#objects {
+    column-span: 1;
+    row-span: 2;
+    width: auto;
+
+}
+
+#events {
+    column-span: 2;
+    height: 10;
+    dock: bottom;
+}
+
+
+.box {
+    height: 100%;
+    border: round green;
+    border-title-align: left;
+    border-title-color: white
+}
