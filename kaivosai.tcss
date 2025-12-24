@@ -1,36 +1,30 @@
 Screen {
-    layout: grid;
-    grid-size: 4 2;
+    layout: grid;   
+    grid-size: 3 2;
 }
 
 #map {
-    column-span: 2;
-    row-span: 2;
-
+    height: 100%;
 }
 
 #commands {
-    column-span: 1;
-    row-span: 2;
 
+    height: 100%;
 }
 
 #objects {
-    column-span: 1;
     row-span: 2;
     width: auto;
-
+    height: 100%
 }
 
 #events {
+    height: 100%;
     column-span: 2;
-    height: 10;
-    dock: bottom;
 }
 
 
 .box {
-    height: 100%;
     border: round green;
     border-title-align: left;
     border-title-color: white

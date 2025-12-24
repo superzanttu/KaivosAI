@@ -6,7 +6,7 @@ from textual.widgets import Header, Footer, Static,ListView,ListItem,DataTable
 
 from version import VERSION
 
-ROWS = [
+OBJECTS = [
     ("ID", "Type", "X","Y","Status","Storage"),
     (4, "Robot", 3,6,"Idle",0),
     (2, "Robot", 10,6,"Moving",12),
@@ -17,6 +17,8 @@ ROWS = [
     (7, "Storage", 13,133,"Full",100),
     (1, "Mine", 123,45,"Working",23),
 ]
+
+COMMANDS = ["Robot commands","Move", "Mine", "Deposit", "Repair", "Scan",]
 
 class KaivosAIApp(App):
     """A Textual app for KaivosAI game."""
@@ -33,7 +35,7 @@ class KaivosAIApp(App):
         yield Header(show_clock=True)
         yield Footer()
         self.map = Static(classes="box", id="map")
-        self.commands = Static(classes="box", id="commands")
+        self.commands = DataTable(classes="box", id="commands")
         self.objects = DataTable(classes="box", id="objects")
         self.events = Static(classes="box", id="events")
         yield self.map
@@ -48,15 +50,23 @@ class KaivosAIApp(App):
         self.events.border_title = "Events"
 
 
-        self.objects.add_columns(*ROWS[0])
+        self.objects.add_columns(*OBJECTS[0])
         self.objects.cursor_type = "row"
-        for row in ROWS[1:]:
+        for row in OBJECTS[1:]:
             # Adding styled and justified `Text` objects instead of plain strings.
             styled_row = [
                 Text(str(cell), style="italic #03AC13", justify="right") for cell in row
             ]
             self.objects.add_row(*styled_row)
 
+        self.commands.add_columns(*COMMANDS[0])
+        self.commands.cursor_type = "row"
+        for row in COMMANDS[1:]:
+            # Adding styled and justified `Text` objects instead of plain strings.
+            styled_row = [
+                Text(str(cell), style="italic #03AC13", justify="right") for cell in row
+            ]
+            self.commands.add_row(*styled_row)
 
 def main():
     """Run the KaivosAI application."""
