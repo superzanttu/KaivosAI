@@ -107,8 +107,8 @@ class KaivosAIApp(App):
         else:
             self.game_loop.pause()
     
-    def action_quit(self) -> None:
-        """Quit the application."""
+    async def on_unmount(self) -> None:
+        """Clean up resources before app shuts down."""
         # Stop game loop if it exists
         if hasattr(self, 'game_loop') and self.game_loop:
             self.game_loop.stop()
@@ -117,7 +117,10 @@ class KaivosAIApp(App):
         if hasattr(self, 'game_worker') and self.game_worker:
             self.game_worker.cancel()
         
-        self.exit()
+        # Close database connection
+        if hasattr(self, 'dbconn') and self.dbconn:
+            database.log_event(self.dbconn, "app_stop", "KaivosAI application stopped")
+            self.dbconn.close()
 
 def main():
     """Run the KaivosAI application."""
