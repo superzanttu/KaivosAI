@@ -41,10 +41,10 @@ class GameLoop:
             self.last_tick_time = datetime.now()
             
             # Update game logic
-            await self._update_robots()
-            await self._update_mining()
-            await self._process_pending_commands()
-            await self._check_resource_transfers()
+            self._update_robots()
+            self._update_mining()
+            self._process_pending_commands()
+            self._check_resource_transfers()
             
             # Log tick event (less frequently to avoid spam)
             if self.tick_count % 10 == 0:
@@ -55,7 +55,7 @@ class GameLoop:
                 )
             
             # Notify UI to refresh
-            await self.app.update_game_ui()
+            self.app.update_game_ui()
             
         except Exception as e:
             database.log_event(
@@ -64,7 +64,7 @@ class GameLoop:
                 f"Game tick error: {str(e)}"
             )
     
-    async def _update_robots(self):
+    def _update_robots(self):
         """Update robot positions and states."""
         # TODO: Implement robot movement logic
         # - Process waypoints
@@ -72,7 +72,7 @@ class GameLoop:
         # - Handle collisions
         pass
     
-    async def _update_mining(self):
+    def _update_mining(self):
         """Update mining operations."""
         # TODO: Implement mining logic
         # - Extract resources
@@ -80,12 +80,12 @@ class GameLoop:
         # - Handle full storage
         pass
     
-    async def _process_pending_commands(self):
+    def _process_pending_commands(self):
         """Process queued user commands."""
         # TODO: Get commands from queue and apply them
         pass
     
-    async def _check_resource_transfers(self):
+    def _check_resource_transfers(self):
         """Handle resource transfers between entities."""
         # TODO: Implement transfer logic
         # - Robot to storage deposits

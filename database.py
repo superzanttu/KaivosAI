@@ -97,10 +97,18 @@ def init_game_db(conn: sqlite3.Connection):
         CREATE TABLE IF NOT EXISTS game_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             event_type TEXT NOT NULL,
-            message TEXT NOT NULL
+            message TEXT NOT NULL,
+            timestamp TEXT DEFAULT (datetime('now'))
         )
         """
     )
+    # Ensure legacy databases have timestamp column
+    columns = {row[1] for row in conn.execute("PRAGMA table_info('game_events')")}
+    if "timestamp" not in columns:
+        # Add column without default (ALTER TABLE in SQLite only allows literal defaults)
+        conn.execute("ALTER TABLE game_events ADD COLUMN timestamp TEXT")
+        # Backfill existing rows with current timestamp
+        conn.execute("UPDATE game_events SET timestamp = COALESCE(timestamp, datetime('now'))")
     # Index for faster queries by timestamp
     # conn.execute(
     #     """
@@ -290,13 +298,23 @@ def log_event(conn: sqlite3.Connection, event_type: str, message: str):
         pos: Optional position tuple (x, y)
     """
    
-    conn.execute(
-        """
-        INSERT INTO game_events (event_type, message)
-        VALUES (?, ?)
-        """,
-        (event_type, message)
-    )
+    try:
+        conn.execute(
+            """
+            INSERT INTO game_events (event_type, message, timestamp)
+            VALUES (?, ?, datetime('now'))
+            """,
+            (event_type, message),
+        )
+    except sqlite3.OperationalError:
+        # Fallback for legacy databases without timestamp column
+        conn.execute(
+            """
+            INSERT INTO game_events (event_type, message)
+            VALUES (?, ?)
+            """,
+            (event_type, message),
+        )
     conn.commit()
 
 
@@ -312,12 +330,12 @@ def get_recent_events(conn: sqlite3.Connection, limit: int = 20):
     """
     cursor = conn.execute(
         """
-        SELECT timestamp, object_id, object_type, event_type, message, x, y
+        SELECT timestamp, event_type, message
         FROM game_events
         ORDER BY id DESC
         LIMIT ?
         """,
-        (limit,)
+        (limit,),
     )
     # Reverse the list so oldest is first, newest is last (at bottom of display)
     return list(reversed(cursor.fetchall()))

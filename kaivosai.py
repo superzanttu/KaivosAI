@@ -3,7 +3,7 @@
 import asyncio
 from rich.text import Text
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static, ListView, ListItem, DataTable
+from textual.widgets import Header, Footer, Static, ListView, ListItem, DataTable,Log
 
 import database
 from version import VERSION
@@ -29,7 +29,6 @@ class KaivosAIApp(App):
 
     CSS_PATH = "kaivosai.tcss"
 
-
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("p", "toggle_pause", "Pause/Resume"),
@@ -39,10 +38,12 @@ class KaivosAIApp(App):
         super().__init__()
         self.dbconn = database.get_connection()
         database.init_game_db(self.dbconn)
-        self.map: Static
-        self.commands: DataTable
-        self.objects: DataTable
-        self.events: Static
+
+        self.mapPanel: Static
+        self.commandsPanel: DataTable
+        self.objectsPanel: DataTable
+        self.eventsPanel: Log
+        self.statusPanel: Static
         self.game_loop: GameLoop
         self.game_worker = None
 
@@ -50,55 +51,63 @@ class KaivosAIApp(App):
         """Create child widgets for the app."""
         yield Header(show_clock=True)
         yield Footer()
-        self.map = Static(classes="box", id="map")
-        self.commands = DataTable(classes="box", id="commands")
-        self.objects = DataTable(classes="box", id="objects")
-        self.events = Static(classes="box", id="events")
-        yield self.map
-        yield self.commands
-        yield self.objects
-        yield self.events
+        self.mapPanel = Static(classes="panel", id="mapPanel")
+        self.commandsPanel = DataTable(classes="panel", id="commandsPanel")
+        self.objectsPanel = DataTable(classes="panel", id="objectsPanel")
+        self.eventsPanel = Log(classes="panel", id="eventsPanel")
+        self.statusPanel = Static(classes="panel", id="statusPanel")
+        yield self.mapPanel
+        yield self.commandsPanel
+        yield self.objectsPanel
+        yield self.eventsPanel  
+        yield self.statusPanel
+
+    def on_ready(self) -> None:    
+        """Called when the app is ready - start the game loop."""
+        self.game_loop = GameLoop(self, self.dbconn, tick_rate=1.0)
+        self.game_worker = asyncio.create_task(self.game_loop.run())
+        database.log_event(self.dbconn, "app_start", "KaivosAI application started")
     
-    async def on_mount(self) -> None:
+    def on_mount(self) -> None:
         """Mount the app and start the background game loop."""
         # Call parent's on_mount methods
         self.title = "KaivosAI v" + VERSION
-        self.map.border_title = "Map"
-        self.commands.border_title = "Commands"
-        self.objects.border_title = "Objects"
-        self.events.border_title = "Events"
+        self.mapPanel.border_title = "Map"
+        
+        self.eventsPanel.border_title = "Events"
 
-        self.objects.add_columns(*OBJECTS[0])
-        self.objects.cursor_type = "row"
+        self.statusPanel.border_title = "Status"
+        self.objectsPanel.add_columns(*OBJECTS[0])
+        self.objectsPanel.cursor_type = "row"
         for row in OBJECTS[1:]:
             styled_row = [
                 Text(str(cell), style="italic #03AC13", justify="right") for cell in row
             ]
-            self.objects.add_row(*styled_row)
+            self.objectsPanel.add_row(*styled_row)
 
-        self.commands.add_columns(*COMMANDS[0])
-        self.commands.cursor_type = "row"
+        self.commandsPanel.border_title = "Commands"
+        self.commandsPanel.add_columns(*COMMANDS[0])
+        self.commandsPanel.cursor_type = "row"
         for row in COMMANDS[1:]:
             styled_row = [
                 Text(str(cell), style="italic #03AC13", justify="right") for cell in row
             ]
-            self.commands.add_row(*styled_row)
-        
-        # Start background game loop
-        self.game_loop = GameLoop(self, self.dbconn, tick_rate=1.0)
-        self.game_worker = self.run_worker(self.game_loop.run(), exclusive=False)
-        database.log_event(self.dbconn, "app_start", "KaivosAI application started")
+            self.commandsPanel.add_row(*styled_row)
     
-    async def update_game_ui(self) -> None:
+    
+    def update_game_ui(self) -> None:
         """Called by game loop to refresh UI with current game state."""
         # Update status/tick display
-        if self.events:
+        if self.statusPanel:
             status = "PAUSED" if self.game_loop.paused else "RUNNING"
-            self.events.update(
+            self.statusPanel.update(
                 f"[bold cyan]Status:[/bold cyan] {status}\n"
                 f"[bold cyan]Tick:[/bold cyan] {self.game_loop.tick_count}\n"
                 f"[bold cyan]Time:[/bold cyan] {self.game_loop.last_tick_time.strftime('%H:%M:%S')}"
             )
+        
+        # Update events panel with recent events from database
+        self._update_events_display()
     
     def action_toggle_pause(self) -> None:
         """Toggle game pause state."""
@@ -107,7 +116,38 @@ class KaivosAIApp(App):
         else:
             self.game_loop.pause()
     
-    async def on_unmount(self) -> None:
+    def _update_events_display(self) -> None:
+        """Fetch and display recent events from database in eventsPanel."""
+        if not self.eventsPanel:
+            return
+        
+        try:
+            # Get 20 most recent events from database
+            events = database.get_recent_events(self.dbconn, limit=20)
+            
+            # Clear the panel and write events
+            self.eventsPanel.clear()
+            
+            if not events:
+                self.eventsPanel.write("No events yet")
+                return
+            
+            # Display each event
+            for event in events:
+                # Rows are sqlite3.Row so keys are available
+                timestamp = event["timestamp"] if "timestamp" in event.keys() else None
+                event_type = event["event_type"] if "event_type" in event.keys() else event[1]
+                message = event["message"] if "message" in event.keys() else event[2]
+
+                # Fallback timestamp formatting
+                ts_display = timestamp if timestamp else "(no time)"
+                self.eventsPanel.write_line(f"[{ts_display}] {event_type}: {message}")
+                
+        except Exception as e:
+            self.eventsPanel.clear()
+            self.eventsPanel.write_line(f"Error loading events: {str(e)}")
+    
+    def on_unmount(self) -> None:
         """Clean up resources before app shuts down."""
         # Stop game loop if it exists
         if hasattr(self, 'game_loop') and self.game_loop:
