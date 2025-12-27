@@ -330,7 +330,7 @@ def get_recent_events(conn: sqlite3.Connection, limit: int = 20):
     """
     cursor = conn.execute(
         """
-        SELECT timestamp, event_type, message
+        SELECT id, timestamp, event_type, message
         FROM game_events
         ORDER BY id DESC
         LIMIT ?
@@ -339,3 +339,10 @@ def get_recent_events(conn: sqlite3.Connection, limit: int = 20):
     )
     # Reverse the list so oldest is first, newest is last (at bottom of display)
     return list(reversed(cursor.fetchall()))
+
+
+def get_latest_event_id(conn: sqlite3.Connection) -> Optional[int]:
+    """Return the newest event id or None if no events."""
+    cur = conn.execute("SELECT id FROM game_events ORDER BY id DESC LIMIT 1")
+    row = cur.fetchone()
+    return int(row["id"]) if row else None

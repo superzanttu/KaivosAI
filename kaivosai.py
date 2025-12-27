@@ -6,6 +6,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Static, ListView, ListItem, DataTable,Log
 
 import database
+import map
 from version import VERSION
 import exceptions
 from gameloop import GameLoop
@@ -38,6 +39,8 @@ class KaivosAIApp(App):
         super().__init__()
         self.dbconn = database.get_connection()
         database.init_game_db(self.dbconn)
+        # Create or load map from database
+        self.game_map = map.Map(conn=self.dbconn)
 
         self.mapPanel: Static
         self.commandsPanel: DataTable
@@ -46,6 +49,8 @@ class KaivosAIApp(App):
         self.statusPanel: Static
         self.game_loop: GameLoop
         self.game_worker = None
+        # Cache the latest event id to avoid unnecessary redraws
+        self._last_event_id = None
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -67,6 +72,12 @@ class KaivosAIApp(App):
         self.game_loop = GameLoop(self, self.dbconn, tick_rate=1.0)
         self.game_worker = asyncio.create_task(self.game_loop.run())
         database.log_event(self.dbconn, "app_start", "KaivosAI application started")
+        # Force initial events render so panel isn't empty at startup
+        try:
+            self._update_events_display()
+            self._last_event_id = database.get_latest_event_id(self.dbconn)
+        except Exception:
+            pass
     
     def on_mount(self) -> None:
         """Mount the app and start the background game loop."""
@@ -106,8 +117,8 @@ class KaivosAIApp(App):
                 f"[bold cyan]Time:[/bold cyan] {self.game_loop.last_tick_time.strftime('%H:%M:%S')}"
             )
         
-        # Update events panel with recent events from database
-        self._update_events_display()
+        # Update events panel only if there are new events
+        self._update_events_display_if_needed()
     
     def action_toggle_pause(self) -> None:
         """Toggle game pause state."""
@@ -136,8 +147,8 @@ class KaivosAIApp(App):
             for event in events:
                 # Rows are sqlite3.Row so keys are available
                 timestamp = event["timestamp"] if "timestamp" in event.keys() else None
-                event_type = event["event_type"] if "event_type" in event.keys() else event[1]
-                message = event["message"] if "message" in event.keys() else event[2]
+                event_type = event["event_type"] if "event_type" in event.keys() else event[2]
+                message = event["message"] if "message" in event.keys() else event[3]
 
                 # Fallback timestamp formatting
                 ts_display = timestamp if timestamp else "(no time)"
@@ -146,6 +157,22 @@ class KaivosAIApp(App):
         except Exception as e:
             self.eventsPanel.clear()
             self.eventsPanel.write_line(f"Error loading events: {str(e)}")
+
+        def _update_events_display_if_needed(self) -> None:
+            """Refresh events panel only when new events exist."""
+            try:
+                latest_id = database.get_latest_event_id(self.dbconn)
+            except Exception:
+                # On query error, fallback to full redraw
+                latest_id = None
+
+            # If no change, skip redraw
+            if latest_id is not None and latest_id == self._last_event_id:
+                return
+
+            # Redraw and update cache
+            self._update_events_display()
+            self._last_event_id = latest_id
     
     def on_unmount(self) -> None:
         """Clean up resources before app shuts down."""
@@ -156,6 +183,13 @@ class KaivosAIApp(App):
         # Cancel the worker if it exists
         if hasattr(self, 'game_worker') and self.game_worker:
             self.game_worker.cancel()
+
+        # Persist map settings and any objects
+        if hasattr(self, 'game_map') and self.game_map:
+            try:
+                self.game_map.save_to_db()
+            except Exception:
+                pass
         
         # Close database connection
         if hasattr(self, 'dbconn') and self.dbconn:
