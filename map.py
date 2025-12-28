@@ -119,5 +119,33 @@ class Map:
                 self.conn.rollback()
             except Exception:
                 pass
+
+    def reset(self) -> None:
+        """Reset map to empty state - clear all objects from memory and database.
+        
+        Clears:
+            - All in-memory cells (objects dict)
+            - All objects from the objects table in database
+            - Preserves map dimensions (width/height)
+        """
+        # Clear in-memory objects
+        self.cells.clear()
+        
+        # Clear database objects if connection exists
+        if self.conn:
+            try:
+                self.conn.execute("DELETE FROM game_objects")
+                self.conn.commit()
+                log_event(self.conn, 'map_reset', f"Map reset to empty state. Dimensions: {self.width}x{self.height}")
+            except Exception as e:
+                try:
+                    self.conn.rollback()
+                except Exception:
+                    pass
+                # Log error but don't crash
+                try:
+                    log_event(self.conn, 'map_reset_error', f"Error resetting map: {str(e)}")
+                except Exception:
+                    pass
     
   

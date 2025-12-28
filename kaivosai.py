@@ -204,7 +204,8 @@ class KaivosAIApp(App):
         
         if button_name == "ResetMap":
             # TODO: Implement save logic
-            self._update_events_display()
+            self.game_map.reset()
+
         elif button_name == "Load":
             # TODO: Implement load logic
             self._update_events_display()
