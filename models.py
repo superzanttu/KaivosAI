@@ -5,23 +5,37 @@ Uses dataclasses for efficient object creation and serialization.
 """
 
 from dataclasses import dataclass, field
+from symtable import Symbol
 from typing import Tuple, Optional
 
 Position = Tuple[int, int]
 
 
 @dataclass
-class Building:
+class BaseObject:
+    id: int = None
 
-    id: Optional[int] = None
+
+@dataclass
+class BaseBuildingObject(BaseObject):
     name: str = ""
+    pos: Position = (0, 0)
+
+@dataclass
+class BaseMovingObject(BaseObject):
+    name: str = ""
+    pos: Position = (0, 0)
+
+@dataclass
+class BaseTerrainObject(BaseObject):
     pos: Position = (0, 0)
 
 
 @dataclass
-class Mine(Building):
+class Mine(BaseBuildingObject):
 
     name: str = "Mine"
+    symbol: str = "M"
     material_stored: int = 0
     material_capacity: int = 10
 
@@ -79,9 +93,10 @@ class Mine(Building):
 
 
 @dataclass
-class Storage(Building):
+class Storage(BaseBuildingObject):
 
     name: str = "Storage"
+    symbol: str = "S"
     material_stored: int = 0
     material_capacity: int = 10
 
@@ -116,9 +131,10 @@ class Storage(Building):
 
 
 @dataclass
-class Base(Building):
+class Base(BaseBuildingObject):
  
     name: str = "Base"
+    symbol: str = "B"
     material_stored: int = 0
     material_capacity: int = 10
 
@@ -160,10 +176,10 @@ class Base(Building):
 
 
 @dataclass
-class Robot:
+class Robot(BaseMovingObject):
  
     name: str = "Robot"
-    id: Optional[int] = None
+    symbol: str = "R"
     pos: Position = (0, 0)
     material_stored: int = 0
     material_capacity: int = 10
@@ -366,16 +382,17 @@ class Robot:
 
 
 @dataclass
-class Rock(Building):
+class Rock(BaseTerrainObject):
     """Impassable terrain obstacle.
     
     Blocks robot movement and pathfinding.
     Used for terrain generation and map obstacles.
     """
+    symbol: str = "#"
     pass
 
 
-def create_object(obj_type: str, id: Optional[int] = None, name: str = None, **kwargs):
+def create_object(obj_type: str, id: int = None, name: str = None, **kwargs):
     """Factory function for creating game objects from type string.
     
     Args:

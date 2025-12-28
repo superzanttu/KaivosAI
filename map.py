@@ -34,7 +34,7 @@ class Map:
     """Game world map managing all objects and their spatial relationships."""
  
     
-    def __init__(self, width: int = 100, height: int = 100, conn: Optional[sqlite3.Connection] = None):
+    def __init__(self, width: int = 1000, height: int = 1000, conn: Optional[sqlite3.Connection] = None):
         self.width = width
         self.height = height
         self.conn = conn
