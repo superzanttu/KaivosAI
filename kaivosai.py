@@ -157,22 +157,22 @@ class KaivosAIApp(App):
         except Exception as e:
             self.eventsPanel.clear()
             self.eventsPanel.write_line(f"Error loading events: {str(e)}")
+    
+    def _update_events_display_if_needed(self) -> None:
+        """Refresh events panel only when new events exist."""
+        try:
+            latest_id = database.get_latest_event_id(self.dbconn)
+        except Exception:
+            # On query error, fallback to full redraw
+            latest_id = None
 
-        def _update_events_display_if_needed(self) -> None:
-            """Refresh events panel only when new events exist."""
-            try:
-                latest_id = database.get_latest_event_id(self.dbconn)
-            except Exception:
-                # On query error, fallback to full redraw
-                latest_id = None
+        # If no change, skip redraw
+        if latest_id is not None and latest_id == self._last_event_id:
+            return
 
-            # If no change, skip redraw
-            if latest_id is not None and latest_id == self._last_event_id:
-                return
-
-            # Redraw and update cache
-            self._update_events_display()
-            self._last_event_id = latest_id
+        # Redraw and update cache
+        self._update_events_display()
+        self._last_event_id = latest_id
     
     def on_unmount(self) -> None:
         """Clean up resources before app shuts down."""
