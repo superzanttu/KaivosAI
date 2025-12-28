@@ -135,6 +135,7 @@ class Map:
         if self.conn:
             try:
                 self.conn.execute("DELETE FROM game_objects")
+                self.conn.execute("DELETE FROM game_settings") 
                 self.conn.commit()
                 log_event(self.conn, 'map_reset', f"Map reset to empty state. Dimensions: {self.width}x{self.height}")
             except Exception as e:
@@ -147,5 +148,83 @@ class Map:
                     log_event(self.conn, 'map_reset_error', f"Error resetting map: {str(e)}")
                 except Exception:
                     pass
+
+    def add_object(self, obj, pos: Position):
+        """Add object to map at specified position.
+        
+        Args:
+            obj: Game object to add
+            pos: (x, y) position to place object
+            
+        Raises:
+            ValueError: If position out of bounds or already occupied
+            
+        Note:
+            Automatically persists to database if connection available.
+        """
+        if not self.in_bounds(pos):
+            raise ValueError("Position out of bounds")
+        if self.is_occupied(pos):
+            raise ValueError("Cell is already occupied")
+        if hasattr(obj, 'pos'):
+            obj.pos = pos
+        self.cells[pos] = obj
+        if self.conn:
+            persist_object(self.conn, obj)
+        return True
     
-  
+    def in_bounds(self, pos: Position) -> bool:
+        """Check if position is within map boundaries.
+        
+        Args:
+            pos: (x, y) coordinates to check
+            
+        Returns:
+            True if position is inside map bounds
+        """
+        x, y = pos
+        return 0 <= x < self.width and 0 <= y < self.height
+
+    def is_occupied(self, pos: Position) -> bool:
+        """Check if position has an object.
+        
+        Args:
+            pos: (x, y) coordinates to check
+            
+        Returns:
+            True if object exists at position
+        """
+        return pos in self.cells
+       
+    def generate_border_rocks(self):
+        """Generate rock boundary around all map edges.
+        generate_border_rocks
+        Returns:
+            Number of rocks added
+            
+        Note:
+            Creates Rock objects on all four edges (top/bottom/left/right).
+            Skips positions already occupied by other objects.
+        """
+        rocks_added = 0
+        # Top and bottom edges
+        for x in range(self.width):
+            if (x, 0) not in self.cells:
+                rock = Rock(name=f"Border Rock", pos=(x, 0))
+                self.add_object(rock, (x, 0))
+                rocks_added += 1
+            if (x, self.height - 1) not in self.cells:
+                rock = Rock(name=f"Border Rock", pos=(x, self.height - 1))
+                self.add_object(rock, (x, self.height - 1))
+                rocks_added += 1
+        # Left and right edges
+        for y in range(1, self.height - 1):
+            if (0, y) not in self.cells:
+                rock = Rock(name=f"Border Rock", pos=(0, y))
+                self.add_object(rock, (0, y))
+                rocks_added += 1
+            if (self.width - 1, y) not in self.cells:
+                rock = Rock(name=f"Border Rock", pos=(self.width - 1, y))
+                self.add_object(rock, (self.width - 1, y))
+                rocks_added += 1
+        return rocks_added

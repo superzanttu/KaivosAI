@@ -28,6 +28,7 @@ class BaseMovingObject(BaseObject):
 
 @dataclass
 class BaseTerrainObject(BaseObject):
+    name: str = ""
     pos: Position = (0, 0)
 
 

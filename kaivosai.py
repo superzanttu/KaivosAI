@@ -205,6 +205,8 @@ class KaivosAIApp(App):
         if button_name == "ResetMap":
             # TODO: Implement save logic
             self.game_map.reset()
+            border_rocks = self.game_map.generate_border_rocks()
+            database.log_event(self.dbconn, "map", f"Border rocks generated: {border_rocks}")
 
         elif button_name == "Load":
             # TODO: Implement load logic

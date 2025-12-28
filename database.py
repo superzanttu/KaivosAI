@@ -26,7 +26,7 @@ from exceptions import DatabaseError
 
 Position = Tuple[int, int]
 
-GAME_DB = Path(__file__).parent.parent / "databases" / "game.db"
+GAME_DB = Path(__file__).parent / "databases" / "game.db"
 
 
 def get_connection(path: Optional[Path] = None):
