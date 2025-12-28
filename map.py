@@ -40,11 +40,12 @@ class Map:
         self.conn = conn
         self.cells: Dict[Position, object] = {}
         # Initialize database schema if connection provided.
-        # Avoid calling a non-existent loader; map starts empty by default.
         if self.conn:
             init_game_db(self.conn)
-            # Try to load map settings from DB; fall back to defaults
+            # Load map settings from DB; fall back to defaults
             self._load_map_settings()
+            # Load existing objects from DB into memory
+            self._load_objects_from_db()
 
     def _load_map_settings(self) -> None:
         """Load map dimensions from game_settings, if present.
@@ -78,6 +79,57 @@ class Map:
                 pass
         except Exception:
             # If anything goes wrong, keep defaults
+            pass
+
+    def _load_objects_from_db(self) -> None:
+        """Load objects from database into memory (self.cells).
+        
+        Recreates object instances from database rows and populates the cells dict.
+        """
+        if not self.conn:
+            return
+        
+        try:
+            rows = load_objects_from_db(self.conn)
+            loaded_count = 0
+            
+            for row in rows:
+                try:
+                    obj_type = row['type'] if 'type' in row.keys() else row[1]
+                    x = row['x'] if 'x' in row.keys() else row[3]
+                    y = row['y'] if 'y' in row.keys() else row[4]
+                    name = row['name'] if 'name' in row.keys() else row[2]
+                    
+                    pos = (int(x), int(y))
+                    
+                    # Create appropriate object instance
+                    if obj_type == 'rock':
+                        obj = Rock(name=name or 'Rock', pos=pos)
+                    elif obj_type == 'robot':
+                        obj = Robot(name=name or 'Robot', pos=pos)
+                    elif obj_type == 'mine':
+                        obj = Mine(name=name or 'Mine', pos=pos)
+                    elif obj_type == 'storage':
+                        obj = Storage(name=name or 'Storage', pos=pos)
+                    elif obj_type == 'base':
+                        obj = Base(name=name or 'Base', pos=pos)
+                    else:
+                        continue  # Skip unknown types
+                    
+                    self.cells[pos] = obj
+                    loaded_count += 1
+                    
+                except Exception:
+                    continue  # Skip malformed rows
+            
+            if loaded_count > 0:
+                try:
+                    log_event(self.conn, 'objects_loaded', f"Loaded {loaded_count} objects from database")
+                except Exception:
+                    pass
+                    
+        except Exception:
+            # If loading fails, continue with empty map
             pass
 
     def save_to_db(self) -> None:
@@ -227,4 +279,49 @@ class Map:
                 rock = Rock(name=f"Border Rock", pos=(self.width - 1, y))
                 self.add_object(rock, (self.width - 1, y))
                 rocks_added += 1
+        return rocks_added
+
+    def generate_random_rocks(self, count: int = 50, density: float = 0.05):
+        """Generate random rocks scattered across the map.
+        
+        Args:
+            count: Target number of rocks to place (if density not used)
+            density: Fraction of map cells to fill with rocks (0.0 to 1.0)
+                    If > 0, overrides count parameter
+        
+        Returns:
+            Number of rocks successfully added
+            
+        Note:
+            Skips positions already occupied. Uses density if specified,
+            otherwise places 'count' rocks at random valid positions.
+        """
+        # Calculate target count from density if specified
+        if density > 0:
+            total_cells = self.width * self.height
+            count = int(total_cells * density)
+        
+        rocks_added = 0
+        attempts = 0
+        max_attempts = count * 10  # Avoid infinite loop
+        
+        while rocks_added < count and attempts < max_attempts:
+            attempts += 1
+            # Random position within map bounds
+            x = random.randint(0, self.width - 1)
+            y = random.randint(0, self.height - 1)
+            
+            # Skip if occupied
+            if (x, y) in self.cells:
+                continue
+            
+            # Add rock
+            rock = Rock(name=f"Rock", pos=(x, y))
+            try:
+                self.add_object(rock, (x, y))
+                rocks_added += 1
+            except Exception:
+                # Skip on error (shouldn't happen but be safe)
+                continue
+        
         return rocks_added

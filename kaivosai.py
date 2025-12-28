@@ -93,10 +93,93 @@ class GameMapPanel(DataTable):
     """A container for displaying the game map."""
 
     def on_mount(self):
-        for x in range(100):
-            self.add_column(str(x))
-            self.add_row(str(x))
-        # self.add_rows(lst)
+        self.cursor_type = "cell"
+        # Show Y coordinate labels on the left
+        try:
+            self.show_row_labels = True
+        except Exception:
+            # If DataTable doesn't support row labels, ignore gracefully
+            pass
+ 
+    def refresh_from_db(self):
+        """Refresh map table from database objects using map dimensions.
+
+        Builds grid with objects already in place for reliable display.
+        Viewport: 40x30 for performance.
+        """
+        from rich.text import Text
+        
+        # Clear any existing table content
+        self.clear()
+
+        # Determine map size from app's game_map
+        full_width = getattr(self.app.game_map, "width", 0) or 0
+        full_height = getattr(self.app.game_map, "height", 0) or 0
+
+        # Guard against invalid dimensions
+        if full_width <= 0 or full_height <= 0:
+            self.add_column("X", key=0)
+            self.add_row("No map", key=0, label="0")
+            return
+
+        # Use viewport for performance
+        width = 100 # min(full_width, 40)
+        height = 100  # min(full_height, 30)
+
+        # Load all objects from database into a lookup dict
+        cur = self.app.dbconn.execute("SELECT x, y, type FROM game_objects")
+        objects_dict = {}
+        for row in cur.fetchall():
+            try:
+                x = int(row["x"] if "x" in row.keys() else row[0])
+                y = int(row["y"] if "y" in row.keys() else row[1])
+                obj_type = row["type"] if "type" in row.keys() else row[2]
+                if 0 <= x < width and 0 <= y < height:
+                    objects_dict[(x, y)] = obj_type
+            except Exception:
+                continue
+
+        # Create columns
+        for x in range(width):
+            self.add_column(str(x), key=x)
+
+        # Build each row with objects already in place
+        marked_count = 0
+        for y in range(height):
+            row_data = []
+            for x in range(width):
+                if (x, y) in objects_dict:
+                    # Object at this position
+                    obj_type = objects_dict[(x, y)]
+                    if obj_type == "rock":
+                        row_data.append(Text("█", style="bold white"))
+                    elif obj_type == "robot":
+                        row_data.append(Text("R", style="bold cyan"))
+                    elif obj_type == "mine":
+                        row_data.append(Text("M", style="bold yellow"))
+                    elif obj_type == "storage":
+                        row_data.append(Text("S", style="bold green"))
+                    elif obj_type == "base":
+                        row_data.append(Text("B", style="bold magenta"))
+                    else:
+                        row_data.append(Text("?", style="bold red"))
+                    marked_count += 1
+                else:
+                    # Empty cell
+                    row_data.append(Text("·", style="dim"))
+            
+            # Add row with label
+            try:
+                self.add_row(*row_data, key=y, label=str(y))
+            except Exception:
+                self.add_row(*row_data, key=y)
+        
+        # Log success
+        import database
+        database.log_event(self.app.dbconn, "map_refresh", f"Map displayed: {marked_count} objects in {width}x{height} viewport")
+
+        
+
    
 
 
@@ -118,7 +201,7 @@ class KaivosAIApp(App):
         # Create or load map from database
         self.game_map = map.Map(conn=self.dbconn)
 
-        self.map: GameMapPanel
+        self.mapPanel: GameMapPanel
         self.commandsPanel: DataTable
         self.objectsPanel: DataTable
         self.eventsPanel: Log
@@ -157,13 +240,31 @@ class KaivosAIApp(App):
         self.game_loop = GameLoop(self, self.dbconn, tick_rate=1.0)
         self.game_worker = asyncio.create_task(self.game_loop.run())
         database.log_event(self.dbconn, "app_start", "KaivosAI application started")
+        
         # Force initial events render so panel isn't empty at startup
         try:
             self._update_events_display()
             self._last_event_id = database.get_latest_event_id(self.dbconn)
         except Exception:
             pass
-    
+
+        # Initialize map with rocks if empty (objects loaded in Map.__init__)
+        if len(self.game_map.cells) == 0:
+            try:
+                # Generate border and random rocks
+                border_rocks = self.game_map.generate_border_rocks()
+                random_rocks = self.game_map.generate_random_rocks(density=0.05)
+                database.log_event(self.dbconn, "map_init", f"Map initialized: {border_rocks} border rocks, {random_rocks} random rocks")
+            except Exception as e:
+                database.log_event(self.dbconn, "map_init_error", f"Error initializing map: {str(e)}")
+
+        # Display the map
+        try:
+            self.mapPanel.refresh_from_db()
+        except Exception as e:
+            database.log_event(self.dbconn, "map_display_error", f"Error displaying map: {str(e)}")
+
+
     def on_mount(self) -> None:
         """Mount the app and start the background game loop."""
         # Call parent's on_mount methods
@@ -222,6 +323,11 @@ class KaivosAIApp(App):
             self.game_map.reset()
             border_rocks = self.game_map.generate_border_rocks()
             database.log_event(self.dbconn, "map", f"Border rocks generated: {border_rocks}")
+            # Refresh map panel to reflect the change
+            try:
+                self.mapPanel.refresh_from_db()
+            except Exception:
+                pass
 
         elif button_name == "Load":
             # TODO: Implement load logic
