@@ -88,6 +88,19 @@ class GameSettingsPanel(Container):
         self.app.handle_settings_button(button_name)
                 
 
+
+class GameMapPanel(DataTable):
+    """A container for displaying the game map."""
+
+    def on_mount(self):
+        for x in range(100):
+            self.add_column(str(x))
+            self.add_row(str(x))
+        # self.add_rows(lst)
+   
+
+
+
 class KaivosAIApp(App):
     """A Textual app for KaivosAI game."""
 
@@ -105,13 +118,14 @@ class KaivosAIApp(App):
         # Create or load map from database
         self.game_map = map.Map(conn=self.dbconn)
 
-        self.mapPanel: Static
+        self.map: GameMapPanel
         self.commandsPanel: DataTable
         self.objectsPanel: DataTable
         self.eventsPanel: Log
         self.statusPanel: Static
         self.gamesettingsPanel: GameSettingsPanel
 
+    
 
         self.game_loop: GameLoop
         self.game_worker = None
@@ -124,12 +138,13 @@ class KaivosAIApp(App):
         """Create child widgets for the app."""
         yield Header(show_clock=True)
         yield Footer()
-        self.mapPanel = Static(classes="panel", id="mapPanel")
+        self.mapPanel = GameMapPanel(classes="panel", id="mapPanel")
         self.commandsPanel = DataTable(classes="panel", id="commandsPanel")
         self.objectsPanel = DataTable(classes="panel", id="objectsPanel")
         self.eventsPanel = Log(classes="panel", id="eventsPanel")
         self.statusPanel = Static(classes="panel", id="statusPanel")
-        self.gamesettingsPanel = GameSettingsPanel(id="gamesettingsPanel", classes="panel")
+        self.gamesettingsPanel = GameSettingsPanel(classes="panel",id="gamesettingsPanel")
+   
         yield self.mapPanel
         yield self.commandsPanel
         yield self.objectsPanel
