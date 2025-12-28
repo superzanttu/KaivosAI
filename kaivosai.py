@@ -27,7 +27,7 @@ OBJECTS = [
 
 COMMANDS = ["Robot commands","Move", "Mine", "Deposit", "Repair", "Scan",]
 
-BUTTON_NAMES = ["Save", "Load", "Reset"]
+BUTTON_NAMES = ["ResetMap", "Free1", "Free2",]
 
 class GameSettingsList(DataTable):
 
@@ -111,12 +111,14 @@ class KaivosAIApp(App):
         self.eventsPanel: Log
         self.statusPanel: Static
         self.gamesettingsPanel: GameSettingsPanel
+
+
         self.game_loop: GameLoop
         self.game_worker = None
+
         # Cache the latest event id to avoid unnecessary redraws
         self._last_event_id = None
-        # Cache game settings hash to detect changes
-        self._last_game_settings_hash = None
+
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -200,7 +202,7 @@ class KaivosAIApp(App):
         """Handle settings panel button presses."""
         database.log_event(self.dbconn, "button_pressed", f"Settings button pressed: {button_name}")
         
-        if button_name == "Save":
+        if button_name == "ResetMap":
             # TODO: Implement save logic
             self._update_events_display()
         elif button_name == "Load":
