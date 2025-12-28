@@ -13,12 +13,17 @@ Screen {
 }
 
 #objectsPanel {
-    row-span: 2;
+    row-span: 1;
     width: 100%;
     height: 100%;
 }
 
 #eventsPanel {
+    height: 100%;
+    column-span: 1;
+}
+
+#gamesettingsPanel {
     height: 100%;
     column-span: 1;
 }

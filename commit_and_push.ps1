@@ -64,6 +64,23 @@ git add -A
 $commitFile = Join-Path (Get-Location) "commit_message.txt"
 $useCommitFile = Test-Path $commitFile
 
+# Check if commit_message.txt exists and is not empty
+if ($useCommitFile) {
+	$fileContent = Get-Content $commitFile -Raw -ErrorAction SilentlyContinue
+	if (-not $fileContent -or $fileContent.Trim() -eq "") {
+		Write-Output "commit_message.txt is empty."
+		$userMessage = Read-Host "Enter commit message"
+		if ($userMessage.Trim()) {
+			# Use Set-Content instead of Out-File to avoid NUL byte issues
+			$userMessage.Trim() | Set-Content -Path $commitFile -Encoding UTF8 -NoNewline
+			Write-Output "Commit message saved to commit_message.txt"
+		} else {
+			Write-Output "No commit message provided. Using default message."
+			$useCommitFile = $false
+		}
+	}
+}
+
 # commit only if there are staged changes
 $staged = git diff --cached --name-only
 if (-not $staged) {

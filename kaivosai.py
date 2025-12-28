@@ -47,10 +47,13 @@ class KaivosAIApp(App):
         self.objectsPanel: DataTable
         self.eventsPanel: Log
         self.statusPanel: Static
+        self.gamesettingsPanel: DataTable
         self.game_loop: GameLoop
         self.game_worker = None
         # Cache the latest event id to avoid unnecessary redraws
         self._last_event_id = None
+        # Cache game settings hash to detect changes
+        self._last_game_settings_hash = None
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -61,13 +64,15 @@ class KaivosAIApp(App):
         self.objectsPanel = DataTable(classes="panel", id="objectsPanel")
         self.eventsPanel = Log(classes="panel", id="eventsPanel")
         self.statusPanel = Static(classes="panel", id="statusPanel")
+        self.gamesettingsPanel = DataTable(classes="panel", id="gamesettingsPanel")
         yield self.mapPanel
         yield self.commandsPanel
         yield self.objectsPanel
-        yield self.eventsPanel  
+        yield self.eventsPanel
         yield self.statusPanel
+        yield self.gamesettingsPanel
 
-    def on_ready(self) -> None:    
+    def on_ready(self) -> None:
         """Called when the app is ready - start the game loop."""
         self.game_loop = GameLoop(self, self.dbconn, tick_rate=1.0)
         self.game_worker = asyncio.create_task(self.game_loop.run())
@@ -104,7 +109,11 @@ class KaivosAIApp(App):
                 Text(str(cell), style="italic #03AC13", justify="right") for cell in row
             ]
             self.commandsPanel.add_row(*styled_row)
-    
+        
+        self.gamesettingsPanel.border_title = "Game Settings"
+        self.gamesettingsPanel.add_columns("Setting", "Value")
+        self.gamesettingsPanel.cursor_type = "row"
+        self._update_gamesettings_display()
     
     def update_game_ui(self) -> None:
         """Called by game loop to refresh UI with current game state."""
@@ -119,6 +128,9 @@ class KaivosAIApp(App):
         
         # Update events panel only if there are new events
         self._update_events_display_if_needed()
+        
+        # Update game settings panel only if settings changed
+        self._update_gamesettings_panel_if_needed()
     
     def action_toggle_pause(self) -> None:
         """Toggle game pause state."""
@@ -173,6 +185,59 @@ class KaivosAIApp(App):
         # Redraw and update cache
         self._update_events_display()
         self._last_event_id = latest_id
+    
+    def _update_gamesettings_display(self) -> None:
+        """Fetch and display game settings from database in gamesettingsPanel."""
+        if not self.gamesettingsPanel:
+            return
+        
+        try:
+            # Get all game settings from database
+            cur = self.dbconn.execute("SELECT key, value FROM game_settings ORDER BY key")
+            settings = cur.fetchall()
+            
+            # Clear the panel
+            self.gamesettingsPanel.clear()
+            
+            if not settings:
+                # Add empty row if no settings
+                self.gamesettingsPanel.add_row("(no settings)", "")
+                return
+            
+            # Display each setting
+            for setting in settings:
+                key = setting[0] if isinstance(setting, tuple) else setting["key"]
+                value = setting[1] if isinstance(setting, tuple) else setting["value"]
+                
+                styled_row = [
+                    Text(str(key), style="bold"),
+                    Text(str(value), style="italic #03AC13")
+                ]
+                self.gamesettingsPanel.add_row(*styled_row)
+                
+        except Exception as e:
+            self.gamesettingsPanel.clear()
+            self.gamesettingsPanel.add_row("Error", str(e))
+    
+    def _update_gamesettings_panel_if_needed(self) -> None:
+        """Refresh game settings panel only when settings change."""
+        try:
+            # Get current settings hash
+            cur = self.dbconn.execute("SELECT key, value FROM game_settings ORDER BY key")
+            settings = cur.fetchall()
+            # Create hash of settings for comparison
+            settings_hash = hash(tuple((s[0], s[1]) for s in settings))
+        except Exception:
+            # On query error, fallback to full redraw
+            settings_hash = None
+        
+        # If no change, skip redraw
+        if settings_hash is not None and settings_hash == self._last_game_settings_hash:
+            return
+        
+        # Redraw and update cache
+        self._update_gamesettings_display()
+        self._last_game_settings_hash = settings_hash
     
     def on_unmount(self) -> None:
         """Clean up resources before app shuts down."""
