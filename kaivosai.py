@@ -22,17 +22,15 @@ from version import VERSION
 import exceptions
 from gameloop import GameLoop
 
-OBJECTS = [
-    ("ID", "Type", "X", "Y", "Status", "Storage"),
-    (4, "Robot", 3, 6, "Idle", 0),
-    (2, "Robot", 10, 6, "Moving", 12),
-    (5, "Robot", 12, 4, "Damage", 34),
-    (6, "Mine", 13, 3, "Working", 34),
-    (3, "Mine", 13, 5, "Full", 100),
-    (8, "Base", 6, 24, "Active", 23),
-    (7, "Storage", 13, 133, "Full", 100),
-    (1, "Mine", 123, 45, "Working", 23),
-]
+OBJECT_COLUMNS = (
+    "ID",
+    "Tyyppi",
+    "Nimi",
+    "X",
+    "Y",
+    "Varasto",
+    "Kapasiteetti",
+)
 
 COMMANDS = [
     "Robot commands",
@@ -318,6 +316,7 @@ class KaivosAIApp(App):
         # Näytä kartta muistista
         try:
             self.mapPanel.refresh_from_map()
+            self.refresh_objects_panel()
         except Exception as e:
             database.log_event(
                 self.dbconn,
@@ -333,13 +332,9 @@ class KaivosAIApp(App):
         self.eventsPanel.border_title = "Events"
 
         self.statusPanel.border_title = "Status"
-        self.objectsPanel.add_columns(*OBJECTS[0])
+        self.objectsPanel.border_title = "Objects"
         self.objectsPanel.cursor_type = "row"
-        for row in OBJECTS[1:]:
-            styled_row = [
-                Text(str(cell), style="italic #03AC13", justify="right") for cell in row
-            ]
-            self.objectsPanel.add_row(*styled_row)
+        self.refresh_objects_panel()
 
         self.commandsPanel.border_title = "Commands"
         self.commandsPanel.add_columns(*COMMANDS[0])
@@ -351,6 +346,52 @@ class KaivosAIApp(App):
             self.commandsPanel.add_row(*styled_row)
 
         self.gamesettingsPanel.border_title = "Game Settings"
+
+    def refresh_objects_panel(self) -> None:
+        """Päivitä objects-paneeli kartalla olevilla roboteilla ja rakennuksilla."""
+        if not self.objectsPanel:
+            return
+
+        try:
+            self.objectsPanel.clear(columns=True)
+        except Exception:
+            try:
+                self.objectsPanel.clear()
+            except Exception:
+                return
+
+        # Lisää otsikot uudelleen
+        self.objectsPanel.add_columns(*OBJECT_COLUMNS)
+
+        # Hae objektit kartalta
+        try:
+            objects = self.game_map.list_objects()
+        except Exception:
+            objects = []
+
+        if not objects:
+            self.objectsPanel.add_row("-", "-", "-", "-", "-", "-", "-")
+            return
+
+        type_styles = {
+            "robot": "bold cyan",
+            "mine": "bold yellow",
+            "storage": "bold green",
+            "base": "bold magenta",
+        }
+
+        for obj in objects:
+            obj_type = obj.get("type", "?")
+            row = [
+                Text(str(obj.get("id", "")) or "-", style="dim", justify="right"),
+                Text(obj_type.capitalize(), style=type_styles.get(obj_type, "white")),
+                Text(str(obj.get("name", "-")), style="bold white"),
+                Text(str(obj.get("x", "-")), style="dim"),
+                Text(str(obj.get("y", "-")), style="dim"),
+                Text(str(obj.get("material_stored", "-")), style="italic #03AC13"),
+                Text(str(obj.get("material_capacity", "-")), style="italic #03AC13"),
+            ]
+            self.objectsPanel.add_row(*row)
 
     def update_game_ui(self) -> None:
         """Päivitä käyttöliittymä pelisilmukan kutsumana."""
@@ -365,6 +406,12 @@ class KaivosAIApp(App):
 
         # Päivitä tapahtumapaneeli vain jos on uusia tapahtumia
         self._update_events_display_if_needed()
+
+        # Päivitä objects-paneeli ajantasaisilla tiedoilla
+        try:
+            self.refresh_objects_panel()
+        except Exception:
+            pass
 
     def action_toggle_pause(self) -> None:
         """Vaihda pelin taukotila."""
@@ -394,6 +441,7 @@ class KaivosAIApp(App):
             # Päivitä karttapaneeli
             try:
                 self.mapPanel.refresh_from_map()
+                self.refresh_objects_panel()
             except Exception as e:
                 database.log_event(
                     self.dbconn,
@@ -412,6 +460,7 @@ class KaivosAIApp(App):
                 )
                 # Päivitä karttapaneeli
                 self.mapPanel.refresh_from_map()
+                self.refresh_objects_panel()
             except ValueError as e:
                 database.log_event(
                     self.dbconn,

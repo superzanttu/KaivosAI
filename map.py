@@ -285,6 +285,38 @@ class Map:
                 view[(x, y)] = type(obj).__name__.lower()
         return view
 
+    def list_objects(self) -> List[dict]:
+        """Palauta lista kartalla olevista roboteista ja rakennuksista."""
+        objects: List[dict] = []
+
+        for (x, y), obj in self.cells.items():
+            obj_type = type(obj).__name__.lower()
+            if obj_type not in {"robot", "mine", "storage", "base"}:
+                continue
+
+            objects.append(
+                {
+                    "id": getattr(obj, "id", None),
+                    "type": obj_type,
+                    "name": getattr(obj, "name", obj_type.title()),
+                    "x": x,
+                    "y": y,
+                    "material_stored": getattr(obj, "material_stored", None),
+                    "material_capacity": getattr(obj, "material_capacity", None),
+                }
+            )
+
+        objects.sort(
+            key=lambda item: (
+                item["type"],
+                item["id"] if item.get("id") is not None else 0,
+                item.get("x", 0),
+                item.get("y", 0),
+            )
+        )
+
+        return objects
+
     def in_bounds(self, pos: Position) -> bool:
         """Tarkista onko sijainti kartan rajojen sisällä.
         
