@@ -101,20 +101,20 @@ def init_game_db(conn: sqlite3.Connection):
 
 
 def persist_object(conn: sqlite3.Connection, obj, commit: bool = True):
-    """Save or update game object in database (UPSERT operation).
-
-    Uses ON CONFLICT(x,y) DO UPDATE to handle position uniqueness constraint.
-    Falls back to DELETE+INSERT for old databases without UNIQUE constraint.
-
+    """Tallenna tai päivitä peliobjekti tietokantaan (UPSERT-operaatio).
+    
+    Käyttää ON CONFLICT(x,y) DO UPDATE käsittelemään sijainnin yksikäsitteisyysrajoite.
+    Varautuu DELETE+INSERT vanhoille tietokannoille ilman UNIQUE-rajoitetta.
+    
     Args:
-        conn: Database connection
-        obj: Game object (Robot, Mine, Storage, Base, Rock)
-
-    Note:
-        Auto-commits the transaction unless commit=False (for bulk saves).
-        Position (x,y) is the natural key - only one object per cell.
-
-    Example:
+        conn: Tietokantayhteys
+        obj: Peliobjekti (Robot, Mine, Storage, Base, Rock)
+        
+    Huom:
+        Tekee automaattisen commitin ellei commit=False (massatallenuksille).
+        Sijainti (x,y) on luonnollinen avain - vain yksi objekti per solu.
+        
+    Esimerkki:
         >>> robot = Robot(id=1, name='Bot1', pos=(5,7), inventory=3)
         >>> persist_object(conn, robot)
     """
@@ -228,15 +228,15 @@ def persist_object(conn: sqlite3.Connection, obj, commit: bool = True):
 
 
 def delete_object_db(conn: sqlite3.Connection, pos: Position):
-    """Delete game object at specified position.
-
+    """Poista peliobjekti määritetystä sijainnista.
+    
     Args:
-        conn: Database connection
-        pos: (x, y) coordinates of object to delete
-
-    Note:
-        Auto-commits the transaction.
-        Silently succeeds if no object at position.
+        conn: Tietokantayhteys
+        pos: (x, y) koordinaatit poistettavalle objektille
+        
+    Huom:
+        Tekee automaattisen commitin.
+        Onnistuu hiljaisesti vaikka objektia ei olisikaan sijainnissa.
     """
     x, y = pos
     conn.execute("DELETE FROM game_objects WHERE x = ? AND y = ?", (x, y))
@@ -244,34 +244,34 @@ def delete_object_db(conn: sqlite3.Connection, pos: Position):
 
 
 def delete_object_by_id(conn: sqlite3.Connection, oid: int):
-    """Delete game object by ID.
-
+    """Poista peliobjekti ID:n perusteella.
+    
     Args:
-        conn: Database connection
-        oid: Object ID to delete
-
-    Note:
-        Auto-commits the transaction.
-        Silently succeeds if object ID doesn't exist.
+        conn: Tietokantayhteys
+        oid: Poistettavan objektin ID
+        
+    Huom:
+        Tekee automaattisen commitin.
+        Onnistuu hiljaisesti vaikka objekti-ID:tä ei olisikaan.
     """
     conn.execute("DELETE FROM game_objects WHERE id = ?", (oid,))
     conn.commit()
 
 
 def load_objects_from_db(conn: sqlite3.Connection):
-    """Load all game objects from database.
-
+    """Lataa kaikki peliobjektit tietokannasta.
+    
     Args:
-        conn: Database connection
-
+        conn: Tietokantayhteys
+        
     Returns:
-        List of sqlite3.Row objects with all object fields
-
-    Note:
-        Returns raw database rows - use create_object() to instantiate model objects.
-        Map class handles conversion from rows to model instances.
-
-    Example:
+        Lista sqlite3.Row-objekteja kaikilla objektien kentillä
+        
+    Huom:
+        Palauttaa raa'at tietokantarivit - käytä create_object() luodaksesi malliobjektit.
+        Map-luokka käsittelee muunnoksen riveistä malliinstansseiksi.
+    
+    Esimerkki:
         >>> rows = load_objects_from_db(conn)
         >>> for row in rows:
         ...     obj = create_object(row['type'], id=row['id'], pos=(row['x'], row['y']))
@@ -311,14 +311,14 @@ def log_event(conn: sqlite3.Connection, event_type: str, message: str):
 
 
 def get_recent_events(conn: sqlite3.Connection, limit: int = 20):
-    """Get recent game events, oldest first (newest at bottom).
-
+    """Hae viimeisimmät pelitapahtumat, vanhimmat ensin (uusimmat alhaalla).
+    
     Args:
-        conn: Database connection
-        limit: Maximum number of events to return
-
+        conn: Tietokantayhteys
+        limit: Palautettavien tapahtumien maksimimäärä
+        
     Returns:
-        List of event rows (oldest first, newest last)
+        Lista tapahtumariveistä (vanhimmat ensin, uusimmat viimeisenä)
     """
     cursor = conn.execute(
         """
@@ -346,13 +346,13 @@ def get_latest_event_id(conn: sqlite3.Connection) -> Optional[int]:
 
 
 def get_map_settings(conn: sqlite3.Connection) -> dict:
-    """Get map width and height from game_settings.
-
+    """Hae kartan leveys ja korkeus game_settings-taulusta.
+    
     Args:
-        conn: Database connection
-
+        conn: Tietokantayhteys
+        
     Returns:
-        Dict with 'width' and 'height' keys (None if not found)
+        Sanakirja 'width' ja 'height' avaimilla (None jos ei löydy)
     """
     try:
         cur = conn.execute(
@@ -383,13 +383,13 @@ def get_map_settings(conn: sqlite3.Connection) -> dict:
 def save_map_settings(
     conn: sqlite3.Connection, width: int, height: int, commit: bool = True
 ) -> None:
-    """Save map dimensions to game_settings.
-
+    """Tallenna kartan mitat game_settings-tauluun.
+    
     Args:
-        conn: Database connection
-        width: Map width
-        height: Map height
-        commit: Whether to commit immediately (set False for batch transactions)
+        conn: Tietokantayhteys
+        width: Kartan leveys
+        height: Kartan korkeus
+        commit: Tehdäänkö commit välittömästi (aseta False massatransaktioille)
     """
     conn.execute(
         "INSERT INTO game_settings(key, value) VALUES('map_width', ?) "
@@ -415,14 +415,14 @@ def get_all_settings(conn: sqlite3.Connection):
 
 
 def get_setting(conn: sqlite3.Connection, key: str) -> Optional[str]:
-    """Get a single setting value.
-
+    """Hae yksittäinen asetusarvo.
+    
     Args:
-        conn: Database connection
-        key: Setting key
-
+        conn: Tietokantayhteys
+        key: Asetusavain
+        
     Returns:
-        Setting value or None if not found
+        Asetusarvo tai None jos ei löydy
     """
     try:
         cur = conn.execute("SELECT value FROM game_settings WHERE key = ?", (key,))
@@ -433,12 +433,12 @@ def get_setting(conn: sqlite3.Connection, key: str) -> Optional[str]:
 
 
 def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
-    """Set a single setting value.
-
+    """Aseta yksittäinen asetusarvo.
+    
     Args:
-        conn: Database connection
-        key: Setting key
-        value: Setting value
+        conn: Tietokantayhteys
+        key: Asetusavain
+        value: Asetusarvo
     """
     conn.execute(
         "INSERT INTO game_settings(key, value) VALUES(?, ?) "

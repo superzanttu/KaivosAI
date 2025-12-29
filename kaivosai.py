@@ -45,6 +45,7 @@ COMMANDS = [
 
 BUTTON_NAMES = [
     "ResetMap",
+    "AddBuildings",
     "Free1",
     "Free2",
 ]
@@ -398,6 +399,30 @@ class KaivosAIApp(App):
                     self.dbconn,
                     "map_display_error",
                     f"Virhe kartan päivittämisessä: {str(e)}",
+                )
+
+        elif button_name == "AddBuildings":
+            # Lisää rakennukset kartalle
+            try:
+                base_count, mine_count, storage_count = self.game_map.add_initial_buildings()
+                database.log_event(
+                    self.dbconn,
+                    "buildings_added",
+                    f"Lisätty {base_count} tukikohta, {mine_count} kaivosta, {storage_count} varastoa",
+                )
+                # Päivitä karttapaneeli
+                self.mapPanel.refresh_from_map()
+            except ValueError as e:
+                database.log_event(
+                    self.dbconn,
+                    "buildings_error",
+                    f"Virhe rakennusten lisäämisessä: {str(e)}",
+                )
+            except Exception as e:
+                database.log_event(
+                    self.dbconn,
+                    "buildings_error",
+                    f"Odottamaton virhe: {str(e)}",
                 )
 
         elif button_name == "Load":

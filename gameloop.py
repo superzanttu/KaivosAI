@@ -1,4 +1,4 @@
-"""Game loop engine for KaivosAI - processes game events at fixed tick rate."""
+"""Pelisilmukkamoottori KaivosAI:lle - käsittelee pelitapahtumat kiinteällä tick-taajuudella."""
 
 import asyncio
 from datetime import datetime
@@ -7,16 +7,15 @@ import database
 
 
 class GameLoop:
-    """Manages background game state updates and event processing."""
+    """Hallinnoi taustan pelitilan päivityksiä ja tapahtumien käsittelyä."""
 
     def __init__(self, app, dbconn, tick_rate: float = 1.0):
-        """
-        Initialize the game loop.
-
+        """Alusta pelisilmukka.
+        
         Args:
-            app: Reference to the Textual app instance
-            dbconn: Database connection for persisting game state
-            tick_rate: Seconds between game ticks (default 1.0 = 1 per second)
+            app: Viittaus Textual-sovellusinstanssiin
+            dbconn: Tietokantayhteys pelitilan tallennukseen
+            tick_rate: Sekunteja pelitickien välillä (oletus 1.0 = 1 per sekunti)
         """
         self.app = app
         self.dbconn = dbconn
@@ -27,7 +26,7 @@ class GameLoop:
         self.last_tick_time = datetime.now()
 
     async def run(self):
-        """Main game loop - runs independently in background."""
+        """Pääpelisilmukka - toimii itsenäisesti taustalla."""
         self.running = True
         while self.running:
             if not self.paused:
@@ -35,70 +34,70 @@ class GameLoop:
             await asyncio.sleep(self.tick_rate)
 
     async def process_tick(self):
-        """Process one game tick - called every tick_rate seconds."""
+        """Käsittele yksi pelitick - kutsutaan joka tick_rate sekunti."""
         try:
             self.tick_count += 1
             self.last_tick_time = datetime.now()
 
-            # Update game logic
+            # Päivitä pelilogiikka
             self._update_robots()
             self._update_mining()
             self._process_pending_commands()
             self._check_resource_transfers()
 
-            # Log tick event (less frequently to avoid spam)
+            # Kirjaa tick-tapahtuma (harvemmin roskapostin välttämiseksi)
             if self.tick_count % 10 == 0:
                 database.log_event(
                     self.dbconn, "game_tick", f"Game tick {self.tick_count}"
                 )
 
-            # Notify UI to refresh
+            # Ilmoita käyttöliittymälle päivityksestä
             self.app.update_game_ui()
 
         except Exception as e:
             database.log_event(self.dbconn, "game_error", f"Game tick error: {str(e)}")
 
     def _update_robots(self):
-        """Update robot positions and states."""
-        # TODO: Implement robot movement logic
-        # - Process waypoints
-        # - Update positions
-        # - Handle collisions
+        """Päivitä robottien sijainnit ja tilat."""
+        # TODO: Toteuta robotin liikkumislogiikka
+        # - Käsittele reittipisteet
+        # - Päivitä sijainnit
+        # - Käsittele törmäykset
         pass
 
     def _update_mining(self):
-        """Update mining operations."""
-        # TODO: Implement mining logic
-        # - Extract resources
-        # - Update mine states
-        # - Handle full storage
+        """Päivitä kaivostoiminnot."""
+        # TODO: Toteuta kaivoslogiikka
+        # - Louhinta resursseja
+        # - Päivitä kaivosten tilat
+        # - Käsittele täysi varasto
         pass
 
     def _process_pending_commands(self):
-        """Process queued user commands."""
-        # TODO: Get commands from queue and apply them
+        """Käsittele jonossa olevat käyttäjän komennot."""
+        # TODO: Hae komennot jonosta ja suorita ne
         pass
 
     def _check_resource_transfers(self):
-        """Handle resource transfers between entities."""
-        # TODO: Implement transfer logic
-        # - Robot to storage deposits
-        # - Base to robot refueling
+        """Käsittele resurssien siirrot entiteettien välillä."""
+        # TODO: Toteuta siirtologiikka
+        # - Robotti varastoon talletukset
+        # - Tukikohta robottiin tankkaus
         pass
 
     def pause(self):
-        """Pause the game loop."""
+        """Pysäytä pelisilmukka tauolle."""
         self.paused = True
-        database.log_event(self.dbconn, "game_paused", "Game paused")
+        database.log_event(self.dbconn, "game_paused", "Peli pysäytetty")
 
     def resume(self):
-        """Resume the game loop."""
+        """Jatka pelisilmukkaa."""
         self.paused = False
-        database.log_event(self.dbconn, "game_resumed", "Game resumed")
+        database.log_event(self.dbconn, "game_resumed", "Peli jatkettu")
 
     def stop(self):
-        """Stop the game loop gracefully."""
+        """Pysäytä pelisilmukka hallitusti."""
         self.running = False
         database.log_event(
-            self.dbconn, "game_stop", f"Game stopped after {self.tick_count} ticks"
+            self.dbconn, "game_stop", f"Peli pysäytetty {self.tick_count} tickin jälkeen"
         )

@@ -41,7 +41,7 @@ Position = Tuple[int, int]
 
 
 class Map:
-    """Game world map managing all objects and their spatial relationships."""
+    """Pelimaailman kartta hallinnoi kaikkia objekteja ja niiden sijaintisuhteita."""
 
     def __init__(
         self,
@@ -53,18 +53,18 @@ class Map:
         self.height = height
         self.conn = conn
         self.cells: Dict[Position, object] = {}
-        # Initialize database schema if connection provided.
+        # Alusta tietokannan rakenne jos yhteys annettu
         if self.conn:
             init_game_db(self.conn)
-            # Load map settings from DB; fall back to defaults
+            # Lataa kartan asetukset tietokannasta; käytä oletuksia jos ei löydy
             self._load_map_settings()
-            # Load existing objects from DB into memory
+            # Lataa olemassa olevat objektit tietokannasta muistiin
             self._load_objects_from_db()
 
     def _load_map_settings(self) -> None:
-        """Load map dimensions from game_settings, if present.
-
-        Falls back to current in-memory defaults when settings are missing.
+        """Lataa kartan mitat game_settings-taulusta, jos olemassa.
+        
+        Käyttää muistissa olevia oletuksia jos asetuksia ei löydy.
         """
         try:
             settings = get_map_settings(self.conn)
@@ -78,7 +78,7 @@ class Map:
                 self.height = settings["height"]
                 loaded_from_db = True
 
-            # Log map load event
+            # Kirjaa kartan lataus
             try:
                 if loaded_from_db:
                     log_event(
@@ -95,13 +95,13 @@ class Map:
             except Exception:
                 pass
         except Exception:
-            # If anything goes wrong, keep defaults
+            # Jos jokin menee pieleen, säilytä oletukset
             pass
 
     def _load_objects_from_db(self) -> None:
-        """Load objects from database into memory (self.cells).
-
-        Recreates object instances from database rows and populates the cells dict.
+        """Lataa objektit tietokannasta muistiin (self.cells).
+        
+        Luo uudelleen objekti-instanssit tietokantariveistä ja täyttää cells-sanakirjan.
         """
         if not self.conn:
             return
@@ -154,10 +154,10 @@ class Map:
             pass
 
     def save_to_db(self) -> None:
-        """Persist map settings (width/height) and any in-memory objects to DB.
-
-        Note: Object persistence is best-effort using database.persist_object
-        for items present in `cells`. Empty maps will only save dimensions.
+        """Tallenna kartan asetukset (leveys/korkeus) ja muistissa olevat objektit tietokantaan.
+        
+        Huom: Objektien tallennus on parhaansa mukaan käyttäen database.persist_object
+        `cells`:ssä oleville objekteille. Tyhjät kartat tallentavat vain mitat.
         """
         if not self.conn:
             return
@@ -200,18 +200,18 @@ class Map:
                 pass
 
     def reset(self) -> None:
-        """Reset map to empty state - clear all objects from memory and database.
-
-        Clears:
-            - All in-memory cells (objects dict)
-            - All objects from the objects table in database
-            - Map width/height settings in database
-            - Preserves map dimensions (width/height) in memory
+        """Nollaa kartta tyhjään tilaan - tyhjennä kaikki objektit muistista ja tietokannasta.
+        
+        Tyhjentää:
+            - Kaikki muistissa olevat solut (objektit-sanakirja)
+            - Kaikki objektit tietokannan objects-taulusta
+            - Kartan leveys/korkeus asetukset tietokannasta
+            - Säilyttää kartan mitat (leveys/korkeus) muistissa
         """
-        # Clear in-memory objects
+        # Tyhjennä muistissa olevat objektit
         self.cells.clear()
 
-        # Clear database using database API
+        # Tyhjennä tietokanta käyttäen database API:a
         if self.conn:
             try:
                 clear_all_objects(self.conn)
@@ -234,19 +234,19 @@ class Map:
                     pass
 
     def add_object(self, obj, pos: Position, persist: bool = True):
-        """Add object to map at specified position.
-
+        """Lisää objekti karttaan määritettyyn sijaintiin.
+        
         Args:
-            obj: Game object to add
-            pos: (x, y) position to place object
-            persist: Whether to persist to DB immediately (set False for batch operations)
-
+            obj: Lisättävä peliobjekti
+            pos: (x, y) sijainti johon objekti sijoitetaan
+            persist: Tallennetaanko tietokantaan välittömästi (aseta False massaoperaatioille)
+            
         Raises:
-            ValueError: If position out of bounds or already occupied
-
-        Note:
-            Automatically persists to database if connection available and persist=True.
-            For batch operations, set persist=False and commit manually afterward.
+            ValueError: Jos sijainti rajojen ulkopuolella tai jo varattu
+            
+        Huom:
+            Tallentaa automaattisesti tietokantaan jos yhteys saatavilla ja persist=True.
+            Massaoperaatioille aseta persist=False ja tee commit manuaalisesti jälkikäteen.
         """
         if not self.in_bounds(pos):
             raise ValueError("Position out of bounds")
@@ -260,22 +260,22 @@ class Map:
         return True
 
     def object_count(self) -> int:
-        """Return number of objects currently stored in memory."""
+        """Palauta muistissa olevien objektien määrä."""
         return len(self.cells)
 
     def is_empty(self) -> bool:
-        """Return True if no objects are stored in memory."""
+        """Palauta True jos yhtään objektia ei ole tallennettu muistiin."""
         return not self.cells
 
     def get_viewport_objects(self, width: int, height: int) -> Dict[Position, str]:
-        """Return a dict of positions -> type strings within the given viewport.
-
+        """Palauta sanakirja sijainneista -> tyyppeihin annetulla näkymäalueella.
+        
         Args:
-            width: viewport width (columns) starting from x=0
-            height: viewport height (rows) starting from y=0
-
+            width: näkymäalueen leveys (sarakkeet) alkaen x=0
+            height: näkymäalueen korkeus (rivit) alkaen y=0
+            
         Returns:
-            Dict mapping (x, y) -> lowercase type name
+            Sanakirja (x, y) -> pienaakkoset tyyppinimi
         """
         view: Dict[Position, str] = {}
         max_x = min(self.width, width)
@@ -286,41 +286,41 @@ class Map:
         return view
 
     def in_bounds(self, pos: Position) -> bool:
-        """Check if position is within map boundaries.
-
+        """Tarkista onko sijainti kartan rajojen sisällä.
+        
         Args:
-            pos: (x, y) coordinates to check
-
+            pos: (x, y) koordinaatit tarkistettavaksi
+            
         Returns:
-            True if position is inside map bounds
+            True jos sijainti on kartan rajojen sisällä
         """
         x, y = pos
         return 0 <= x < self.width and 0 <= y < self.height
 
     def is_occupied(self, pos: Position) -> bool:
-        """Check if position has an object.
-
+        """Tarkista onko sijainnissa objekti.
+        
         Args:
-            pos: (x, y) coordinates to check
-
+            pos: (x, y) koordinaatit tarkistettavaksi
+            
         Returns:
-            True if object exists at position
+            True jos sijainnissa on objekti
         """
         return pos in self.cells
 
     def generate_border_rocks(self):
-        """Generate rock boundary around all map edges.
-        generate_border_rocks
+        """Generoi kivireuna kartan kaikkien reunojen ympärille.
+        
         Returns:
-            Number of rocks added
-
-        Note:
-            Creates Rock objects on all four edges (top/bottom/left/right).
-            Skips positions already occupied by other objects.
-            Uses batched persistence for better performance.
+            Lisättyjen kivien määrä
+            
+        Huom:
+            Luo Rock-objektit kaikille neljälle reunalle (ylä/ala/vasen/oikea).
+            Ohittaa jo varatut sijainnit.
+            Käyttää erätallenusta suorituskyvyn parantamiseksi.
         """
         rocks_added = 0
-        # Top and bottom edges
+        # Ylä- ja alareunat
         for x in range(self.width):
             if (x, 0) not in self.cells:
                 rock = Rock(name=f"Border Rock", pos=(x, 0))
@@ -330,7 +330,7 @@ class Map:
                 rock = Rock(name=f"Border Rock", pos=(x, self.height - 1))
                 self.add_object(rock, (x, self.height - 1), persist=False)
                 rocks_added += 1
-        # Left and right edges
+        # Vasen ja oikea reuna
         for y in range(1, self.height - 1):
             if (0, y) not in self.cells:
                 rock = Rock(name=f"Border Rock", pos=(0, y))
@@ -341,7 +341,7 @@ class Map:
                 self.add_object(rock, (self.width - 1, y), persist=False)
                 rocks_added += 1
 
-        # Batch persist all rocks in one transaction
+        # Erätallennus kaikille kiville yhdellä transaktiolla
         if self.conn and rocks_added > 0:
             try:
                 self.conn.execute("BEGIN")
@@ -360,19 +360,19 @@ class Map:
     def _generate_rock_cluster(
         self, start_pos: Position, cluster_size: int
     ) -> List[Position]:
-        """Generate a cluster of rock positions using random walk.
-
+        """Generoi kiviklusteri satunnaiskävelyllä.
+        
         Args:
-            start_pos: Starting position for the cluster
-            cluster_size: Target number of rocks in cluster
-
+            start_pos: Klusterin aloitussijainti
+            cluster_size: Tavoiteltu kivien määrä klusterissa
+            
         Returns:
-            List of positions for the cluster
+            Lista sijainteja klusterille
         """
         positions = [start_pos]
         current_pos = start_pos
 
-        # Random walk to create natural-looking cluster
+        # Satunnaiskävely luonnollisen näköisen klusterin luomiseksi
         for _ in range(cluster_size - 1):
             # Try to add adjacent position
             x, y = current_pos
@@ -405,26 +405,26 @@ class Map:
         return positions
 
     def generate_terrain_rocks(self, density: float = 0.05, cluster_size: int = 3):
-        """Generate natural-looking rock formations inside the map.
-
+        """Generoi luonnollisen näköisiä kiviformaatioita kartan sisään.
+        
         Args:
-            density: Probability of a rock cluster starting (0.0 to 1.0, default 0.05)
-            cluster_size: Average size of rock clusters (default 3)
-
+            density: Todennäköisyys kiviklusterin alkamiselle (0.0 - 1.0, oletus 0.05)
+            cluster_size: Kiviklustereiden keskimääräinen koko (oletus 3)
+            
         Returns:
-            Number of rocks added
-
-        Note:
-            - Avoids edges (2 cells from border)
-            - Uses random walk algorithm for natural clustering
-            - Skips occupied positions
-            - Density of 0.05 = ~5% of cells become rock clusters
-            - Uses batched persistence for better performance
+            Lisättyjen kivien määrä
+            
+        Huom:
+            - Välttää reunoja (2 solua reunasta)
+            - Käyttää satunnaiskävely-algoritmia luonnolliseen klusterointiin
+            - Ohittaa varatut sijainnit
+            - Tiheys 0.05 = ~5% soluista muuttuu kiviklusteiksi
+            - Käyttää erätallenusta suorituskyvyn parantamiseksi
         """
         rocks_added = 0
-        added_rocks = []  # Track rocks for batch persistence
+        added_rocks = []  # Seuraa kiviä erätallenusta varten
 
-        # Avoid edges (already have border rocks)
+        # Vältä reunoja (niissä on jo reunakivet)
         for y in range(2, self.height - 2):
             for x in range(2, self.width - 2):
                 # Skip if already occupied
@@ -453,7 +453,7 @@ class Map:
                             except Exception:
                                 continue
 
-        # Batch persist all rocks in one transaction
+        # Erätallennus kaikille kiville yhdellä transaktiolla
         if self.conn and added_rocks:
             try:
                 self.conn.execute("BEGIN")
@@ -468,31 +468,104 @@ class Map:
 
         return rocks_added
 
-    def generate_random_rocks(self, count: int = 50, density: float = 0.05):
-        """Generate random rocks scattered across the map.
-
-        Args:
-            count: Target number of rocks to place (if density not used)
-            density: Fraction of map cells to fill with rocks (0.0 to 1.0)
-                    If > 0, overrides count parameter
-
+    def add_initial_buildings(self):
+        """Lisää karttaan alkutilat: 1 tukikohta, 10 kaivosta ja 5 varastoa.
+        
+        Sijoittaa rakennukset satunnaisiin vapaisiin sijainteihin välttäen reunoja
+        ja varattuja soluja. Käyttää erätallenusta suorituskyvyn parantamiseksi.
+        
         Returns:
-            Number of rocks successfully added
-
-        Note:
-            Skips positions already occupied. Uses density if specified,
-            otherwise places 'count' rocks at random valid positions.
-            Uses batched persistence for better performance.
+            Tuple (base_count, mine_count, storage_count): Lisättyjen rakennusten määrät
+            
+        Raises:
+            ValueError: Jos vapaita sijainteja ei löydy riittävästi
         """
-        # Calculate target count from density if specified
+        buildings_added = []
+        base_count = 0
+        mine_count = 0
+        storage_count = 0
+        
+        # Kerää kaikki vapaat sijainnit (välttäen reunoja)
+        free_positions = []
+        for y in range(2, self.height - 2):
+            for x in range(2, self.width - 2):
+                if (x, y) not in self.cells:
+                    free_positions.append((x, y))
+        
+        # Tarkista että on riittävästi tilaa
+        required_buildings = 1 + 10 + 5  # tukikohta + kaivokset + varastot
+        if len(free_positions) < required_buildings:
+            raise ValueError(
+                f"Ei tarpeeksi vapaita sijainteja. Tarvitaan {required_buildings}, "
+                f"saatavilla {len(free_positions)}"
+            )
+        
+        # Sekoita sijaintilista satunnaisuutta varten
+        random.shuffle(free_positions)
+        
+        # Lisää 1 tukikohta
+        pos = free_positions.pop()
+        base = Base(name="Base", pos=pos)
+        self.add_object(base, pos, persist=False)
+        buildings_added.append(base)
+        base_count = 1
+        
+        # Lisää 10 kaivosta
+        for i in range(10):
+            pos = free_positions.pop()
+            mine = Mine(name=f"Mine_{i+1}", pos=pos)
+            self.add_object(mine, pos, persist=False)
+            buildings_added.append(mine)
+            mine_count += 1
+        
+        # Lisää 5 varastoa
+        for i in range(5):
+            pos = free_positions.pop()
+            storage = Storage(name=f"Storage_{i+1}", pos=pos)
+            self.add_object(storage, pos, persist=False)
+            buildings_added.append(storage)
+            storage_count += 1
+        
+        # Erätallennus kaikille rakennuksille yhdellä transaktiolla
+        if self.conn and buildings_added:
+            try:
+                self.conn.execute("BEGIN")
+                for building in buildings_added:
+                    persist_object(self.conn, building, commit=False)
+                self.conn.commit()
+            except Exception:
+                try:
+                    self.conn.rollback()
+                except Exception:
+                    pass
+        
+        return (base_count, mine_count, storage_count)
+
+    def generate_random_rocks(self, count: int = 50, density: float = 0.05):
+        """Generoi satunnaisia kiviä hajallaan kartalle.
+        
+        Args:
+            count: Tavoiteltu kivien määrä (jos tiheyttä ei käytetä)
+            density: Osuus kartan soluista täytettäväksi kivillä (0.0 - 1.0)
+                    Jos > 0, ohittaa count-parametrin
+        
+        Returns:
+            Onnistuneesti lisättyjen kivien määrä
+            
+        Huom:
+            Ohittaa varatut sijainnit. Käyttää tiheyttä jos määritetty,
+            muuten sijoittaa 'count' kiveä satunnaisiin kelvolliisiin sijainteihin.
+            Käyttää erätallenusta suorituskyvyn parantamiseksi.
+        """
+        # Laske tavoitemäärä tiheydestä jos määritetty
         if density > 0:
             total_cells = self.width * self.height
             count = int(total_cells * density)
 
         rocks_added = 0
         attempts = 0
-        max_attempts = count * 10  # Avoid infinite loop
-        added_rocks = []  # Track rocks added for batch persistence
+        max_attempts = count * 10  # Vältä ikuinen silmukka
+        added_rocks = []  # Seuraa lisättyjä kiviä erätallenusta varten
 
         while rocks_added < count and attempts < max_attempts:
             attempts += 1
