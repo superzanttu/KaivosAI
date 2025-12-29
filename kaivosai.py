@@ -129,9 +129,14 @@ class GameMapPanel(DataTable):
         # Read objects from map via its interface
         objects_dict = self.app.game_map.get_viewport_objects(width, height)
 
-        # Create columns
+        # Create columns with alternating colors for better readability
         for x in range(width):
-            self.add_column(str(x), key=x)
+            # Vaihda väri joka 5. sarakkeelle
+            if x % 2 == 0:            
+                col_label = Text(str(x), style="bold yellow")
+            else:
+                col_label = Text(str(x), style="dim white")
+            self.add_column(col_label, key=x)
 
         # Build each row with objects already in place
         marked_count = 0
@@ -142,25 +147,44 @@ class GameMapPanel(DataTable):
                     # Object at this position
                     obj_type = objects_dict[(x, y)]
                     if obj_type == "rock":
-                        row_data.append(Text("█", style="bold white"))
+                        # Tarkista naapurit jotta kivet näyttävät yhtenäisiltä
+                        neighbors = {
+                            'up': (x, y - 1) in objects_dict and objects_dict.get((x, y - 1)) == "rock",
+                            'down': (x, y + 1) in objects_dict and objects_dict.get((x, y + 1)) == "rock",
+                            'left': (x - 1, y) in objects_dict and objects_dict.get((x - 1, y)) == "rock",
+                            'right': (x + 1, y) in objects_dict and objects_dict.get((x + 1, y)) == "rock"
+                        }
+                        
+                        # Valitse sopiva box-drawing merkki naapureiden perusteella
+                        if neighbors['left'] or neighbors['right']:
+                            rock_char = "██"  # Vaakasuora yhtenäinen
+                        else:
+                            rock_char = "██"  # Pystysuora yhtenäinen
+                        
+                        row_data.append(Text(rock_char, style="bold white"))
                     elif obj_type == "robot":
-                        row_data.append(Text("R", style="bold cyan"))
+                        row_data.append(Text("🤖", style="bold cyan"))
                     elif obj_type == "mine":
-                        row_data.append(Text("M", style="bold yellow"))
+                        row_data.append(Text("⛏ ", style="bold yellow"))
                     elif obj_type == "storage":
-                        row_data.append(Text("S", style="bold green"))
+                        row_data.append(Text("📦", style="bold green"))
                     elif obj_type == "base":
-                        row_data.append(Text("B", style="bold magenta"))
+                        row_data.append(Text("🏠", style="bold magenta"))
                     else:
-                        row_data.append(Text("?", style="bold red"))
+                        row_data.append(Text("? ", style="bold red"))
                     marked_count += 1
                 else:
-                    # Empty cell
-                    row_data.append(Text("·", style="dim"))
+                    # Empty cell (2 chars)
+                    row_data.append(Text("··", style="dim"))
             
-            # Add row with label
+            # Add row with label - vaihda väri joka 5. riville
+            if y % 2 == 0:
+                row_label = Text(str(y), style="bold yellow")
+            else:
+                row_label = Text(str(y), style="dim white")
+            
             try:
-                self.add_row(*row_data, key=y, label=str(y))
+                self.add_row(*row_data, key=y, label=row_label)
             except Exception:
                 self.add_row(*row_data, key=y)
         
