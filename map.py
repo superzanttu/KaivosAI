@@ -221,6 +221,32 @@ class Map:
         if self.conn:
             persist_object(self.conn, obj)
         return True
+
+    def object_count(self) -> int:
+        """Return number of objects currently stored in memory."""
+        return len(self.cells)
+
+    def is_empty(self) -> bool:
+        """Return True if no objects are stored in memory."""
+        return not self.cells
+
+    def get_viewport_objects(self, width: int, height: int) -> Dict[Position, str]:
+        """Return a dict of positions -> type strings within the given viewport.
+
+        Args:
+            width: viewport width (columns) starting from x=0
+            height: viewport height (rows) starting from y=0
+
+        Returns:
+            Dict mapping (x, y) -> lowercase type name
+        """
+        view: Dict[Position, str] = {}
+        max_x = min(self.width, width)
+        max_y = min(self.height, height)
+        for (x, y), obj in self.cells.items():
+            if 0 <= x < max_x and 0 <= y < max_y:
+                view[(x, y)] = type(obj).__name__.lower()
+        return view
     
     def in_bounds(self, pos: Position) -> bool:
         """Check if position is within map boundaries.

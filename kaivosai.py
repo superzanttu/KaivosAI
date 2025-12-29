@@ -126,18 +126,12 @@ class GameMapPanel(DataTable):
             self.add_row("No map", key=0, label="0")
             return
 
-        # Use viewport for performance (can be adjusted)
-        width = min(full_width, 100)
-        height = min(full_height, 100)
+        # Show full map
+        width = full_width
+        height = full_height
 
-        # Read objects from in-memory Map.cells
-        objects_dict = {}
-        for pos, obj in self.app.game_map.cells.items():
-            x, y = pos
-            # Only include objects within viewport
-            if 0 <= x < width and 0 <= y < height:
-                obj_type = type(obj).__name__.lower()
-                objects_dict[(x, y)] = obj_type
+        # Read objects from map via its interface
+        objects_dict = self.app.game_map.get_viewport_objects(width, height)
 
         # Create columns
         for x in range(width):
@@ -238,7 +232,7 @@ class KaivosAIApp(App):
     def on_ready(self) -> None:
         """Called when the app is ready - start the game loop."""
         # Log map status at startup
-        database.log_event(self.dbconn, "map_load", f"Map loaded from DB: {len(self.game_map.cells)} objects in memory")
+        database.log_event(self.dbconn, "map_load", f"Map loaded from DB: {self.game_map.object_count()} objects in memory")
         
         self.game_loop = GameLoop(self, self.dbconn, tick_rate=1.0)
         self.game_worker = asyncio.create_task(self.game_loop.run())
@@ -252,7 +246,7 @@ class KaivosAIApp(App):
             pass
 
         # Initialize map with rocks if empty (objects loaded in Map.__init__)
-        if len(self.game_map.cells) == 0:
+        if self.game_map.is_empty():
             try:
                 # Generate border and random rocks
                 border_rocks = self.game_map.generate_border_rocks()
@@ -401,7 +395,7 @@ class KaivosAIApp(App):
         # Persist map from memory to database
         if hasattr(self, 'game_map') and self.game_map:
             try:
-                obj_count = len(self.game_map.cells)
+                obj_count = self.game_map.object_count()
                 self.game_map.save_to_db()
                 database.log_event(self.dbconn, "map_save", f"Map saved to DB: {obj_count} objects persisted")
             except Exception as e:
