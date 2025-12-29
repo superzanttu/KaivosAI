@@ -1,5 +1,5 @@
 Screen {
-    layout: grid;   
+    layout: grid;
     grid-size: 3 2;
 }
 
@@ -28,7 +28,6 @@ Screen {
     column-span: 1;
 
 }
-
 
 .panel {
     border: round green;
