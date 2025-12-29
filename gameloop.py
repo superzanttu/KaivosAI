@@ -40,6 +40,7 @@ class GameLoop:
             self.last_tick_time = datetime.now()
 
             # Päivitä pelilogiikka
+            self._update_objects()
             self._update_robots()
             self._update_mining()
             self._process_pending_commands()
@@ -56,6 +57,28 @@ class GameLoop:
 
         except Exception as e:
             database.log_event(self.dbconn, "game_error", f"Game tick error: {str(e)}")
+
+    def _update_objects(self):
+        """Kutsu jokaisen kartalla olevan objektin tikkipäivitys.
+
+        Kutsuu `on_tick()` vain robotille, kaivokselle, varastolle ja tukikohdalle.
+        """
+        try:
+            game_map = getattr(self.app, "game_map", None)
+            if not game_map or not hasattr(game_map, "cells"):
+                return
+            for pos, obj in list(game_map.cells.items()):
+                obj_type = type(obj).__name__.lower()
+                if obj_type in {"robot", "mine", "storage", "base"}:
+                    try:
+                        # Kutsu objektin tikkifunktio; objektit voivat olla passiivisia
+                        obj.on_tick(self.tick_count, self.tick_rate, game_map, self.dbconn)
+                    except Exception:
+                        # Älä kaada peliä yksittäisen objektin virheestä
+                        continue
+        except Exception:
+            # Vältä pelin kaatuminen
+            return
 
     def _update_robots(self):
         """Päivitä robottien sijainnit ja tilat."""

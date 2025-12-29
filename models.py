@@ -14,6 +14,20 @@ Position = Tuple[int, int]
 @dataclass
 class BaseObject:
     id: int = None
+    def on_tick(self, tick_count: int, delta_seconds: float, game_map, dbconn) -> None:
+        """Tikkikutsu jokaiselle objektityypille.
+
+        Kutsutaan kerran jokaisessa pelisilmukan kierrossa. Oletusimplementaatio
+        ei tee mitään; yksittäiset objektit voivat ylikirjoittaa tämän
+        ohjatakseen omaa käyttäytymistään.
+
+        Args:
+            tick_count: Kokonaisluku, pelitickien kumulatiivinen määrä
+            delta_seconds: Kuinka monta sekuntia kului edellisestä tickistä
+            game_map: Viittaus aktiiviseen kartta-olioon (Map)
+            dbconn: Tietokantayhteys mahdollisia lokituksia/tallennuksia varten
+        """
+        return None
 
 
 @dataclass
@@ -39,6 +53,24 @@ class Mine(BaseBuildingObject):
     symbol: str = "M"
     material_stored: int = 0
     material_capacity: int = 10
+    _production_time_acc: float = 0.0
+
+    def on_tick(self, tick_count: int, delta_seconds: float, game_map, dbconn) -> None:
+        """Kaivoksen tikkipäivitys.
+
+        Tuottaa 1 yksikön materiaalia joka 10 sekunti kunnes kapasiteetti on täynnä.
+        """
+        try:
+            if self.material_stored >= self.material_capacity:
+                return
+            # Kokoa aikaa ja tuota kun ylittää 10s
+            self._production_time_acc += float(delta_seconds or 0.0)
+            while self._production_time_acc >= 10.0 and self.material_stored < self.material_capacity:
+                self.material_stored += 1
+                self._production_time_acc -= 10.0
+        except Exception:
+            # Varmuuden vuoksi älä kaada peliä
+            pass
 
 
     # def extract(self, amount: int) -> int:
@@ -101,6 +133,14 @@ class Storage(BaseBuildingObject):
     material_stored: int = 0
     material_capacity: int = 10
 
+    def on_tick(self, tick_count: int, delta_seconds: float, game_map, dbconn) -> None:
+        """Varaston tikkipäivitys.
+
+        Paikka tulevalle automaattiselle tasapainotukselle tai ylläpidolle.
+        Tällä hetkellä ei tee mitään.
+        """
+        return None
+
     # def store(self, amount: int) -> int:
     #     """Store materials up to capacity limit.
         
@@ -138,6 +178,14 @@ class Base(BaseBuildingObject):
     symbol: str = "B"
     material_stored: int = 0
     material_capacity: int = 10
+
+    def on_tick(self, tick_count: int, delta_seconds: float, game_map, dbconn) -> None:
+        """Tukikohdan tikkipäivitys.
+
+        Paikka resurssien kulutukselle, energiankäytölle, yms. logiikalle.
+        Tällä hetkellä ei tee mitään.
+        """
+        return None
 
     # def deposit(self, amount: int) -> int:
     #     """Deposit materials to base (increments both bank and stored).
@@ -184,6 +232,14 @@ class Robot(BaseMovingObject):
     pos: Position = (0, 0)
     material_stored: int = 0
     material_capacity: int = 10
+
+    def on_tick(self, tick_count: int, delta_seconds: float, game_map, dbconn) -> None:
+        """Robotin tikkipäivitys.
+
+        Paikka liikkumiselle, komentosuoritukselle ja siirroille.
+        Tällä hetkellä ei tee mitään.
+        """
+        return None
 
     
     # commands_text: list = None  # 10 lines, max 20 chars each - RoboBASIC code
