@@ -133,6 +133,12 @@ class Map:
                     else:
                         continue  # Skip unknown types
 
+                    # Aseta tietokannasta luettu ID objektiin
+                    try:
+                        obj.id = row["id"] if "id" in row.keys() else row[0]
+                    except Exception:
+                        pass
+
                     self.cells[pos] = obj
                     loaded_count += 1
 

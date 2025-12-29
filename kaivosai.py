@@ -24,12 +24,12 @@ from gameloop import GameLoop
 
 OBJECT_COLUMNS = (
     "ID",
-    "Tyyppi",
-    "Nimi",
+    "Type",
+    "Name",
     "X",
     "Y",
-    "Varasto",
-    "Kapasiteetti",
+    "Amount",
+    "Capacity",
 )
 
 COMMANDS = [
@@ -70,7 +70,7 @@ class GameSettingsList(DataTable):
 
             if not settings:
                 # Lisää tyhjä rivi jos ei asetuksia
-                self.add_row("(ei asetuksia)", "")
+                self.add_row("(no settings)", "")
                 return
 
             # Näytä jokainen asetus
@@ -139,7 +139,7 @@ class GameMapPanel(DataTable):
         # Tarkista että mitat ovat kelvollisia
         if full_width <= 0 or full_height <= 0:
             self.add_column("X", key=0)
-            self.add_row("Ei karttaa", key=0, label="0")
+            self.add_row("(no map)", key=0, label="0")
             return
 
         # Näytä koko kartta
@@ -218,7 +218,7 @@ class GameMapPanel(DataTable):
         database.log_event(
             self.app.dbconn,
             "map_refresh",
-            f"Kartta näytetty: {marked_count} objektia {width}x{height} ruudukossa",
+            f"Map displayed: {marked_count} objects in {width}x{height} grid",
         )
 
 
@@ -228,8 +228,8 @@ class KaivosAIApp(App):
     CSS_PATH = "kaivosai.tcss"
 
     BINDINGS = [
-        ("q", "quit", "Lopeta"),
-        ("p", "toggle_pause", "Tauko/Jatka"),
+        ("q", "quit", "Quit"),
+        ("p", "toggle_pause", "Pause/Resume"),
     ]
 
     def __init__(self):
@@ -252,6 +252,10 @@ class KaivosAIApp(App):
 
         # Välimuisti viimeisimmän tapahtuman ID:lle turhien päivitysten välttämiseksi
         self._last_event_id = None
+        # Välimuisti objekti-rivien koordinaateille objects-paneelista
+        self._objects_index = {}
+        # Päivityslippu: päivitä objects-paneeli vain kun lippu on päällä
+        self._objects_dirty = True
 
     def compose(self) -> ComposeResult:
         """Luo sovelluksen komponentit."""
@@ -279,12 +283,12 @@ class KaivosAIApp(App):
         database.log_event(
             self.dbconn,
             "map_load",
-            f"Kartta ladattu: {self.game_map.object_count()} objektia muistissa",
+            f"Map loaded: {self.game_map.object_count()} objects in memory",
         )
 
         self.game_loop = GameLoop(self, self.dbconn, tick_rate=1.0)
         self.game_worker = asyncio.create_task(self.game_loop.run())
-        database.log_event(self.dbconn, "app_start", "KaivosAI käynnistetty")
+        database.log_event(self.dbconn, "app_start", "KaivosAI started")
 
         # Pakota tapahtumapaneelin alkuperäinen renderöinti
         try:
@@ -304,24 +308,25 @@ class KaivosAIApp(App):
                 database.log_event(
                     self.dbconn,
                     "map_init",
-                    f"Kartta alustettu: {border_rocks} reunakiveä, {terrain_rocks} maastokiveä",
+                    f"Map initialized: {border_rocks} border rocks, {terrain_rocks} terrain rocks",
                 )
             except Exception as e:
                 database.log_event(
                     self.dbconn,
                     "map_init_error",
-                    f"Virhe kartan alustuksessa: {str(e)}",
+                    f"Error initializing map: {str(e)}",
                 )
 
         # Näytä kartta muistista
         try:
             self.mapPanel.refresh_from_map()
             self.refresh_objects_panel()
+            self._objects_dirty = False
         except Exception as e:
             database.log_event(
                 self.dbconn,
                 "map_display_error",
-                f"Virhe kartan näyttämisessä: {str(e)}",
+                f"Error updating map display: {str(e)}",
             )
 
     def on_mount(self) -> None:
@@ -352,16 +357,37 @@ class KaivosAIApp(App):
         if not self.objectsPanel:
             return
 
+        # Säilytä nykyinen valinta
+        selected_key = None
         try:
-            self.objectsPanel.clear(columns=True)
+            coord = getattr(self.objectsPanel, "cursor_coordinate", None)
+            if coord:
+                selected_key = coord[0]
+        except Exception:
+            selected_key = None
+
+        # Tyhjennä vain rivit, jätä sarakkeet paikoilleen
+        try:
+            self.objectsPanel.clear(columns=False)
         except Exception:
             try:
                 self.objectsPanel.clear()
             except Exception:
                 return
 
-        # Lisää otsikot uudelleen
-        self.objectsPanel.add_columns(*OBJECT_COLUMNS)
+        # Lisää otsikot vain jos sarakkeita ei ole
+        try:
+            if not self.objectsPanel.columns:
+                self.objectsPanel.add_columns(*OBJECT_COLUMNS)
+        except Exception:
+            # Viimeinen keino: yritä lisätä joka tapauksessa
+            try:
+                self.objectsPanel.add_columns(*OBJECT_COLUMNS)
+            except Exception:
+                pass
+
+        # Tyhjennä välimuisti rivien koordinaateista
+        self._objects_index = {}
 
         # Hae objektit kartalta
         try:
@@ -370,7 +396,7 @@ class KaivosAIApp(App):
             objects = []
 
         if not objects:
-            self.objectsPanel.add_row("-", "-", "-", "-", "-", "-", "-")
+            self.objectsPanel.add_row("-", "-", "-", "-", "-", "-", "-", key="empty")
             return
 
         type_styles = {
@@ -382,22 +408,102 @@ class KaivosAIApp(App):
 
         for obj in objects:
             obj_type = obj.get("type", "?")
+            x = obj.get("x")
+            y = obj.get("y")
+            row_key = f"{obj_type}:{obj.get('id', '')}:{x}:{y}"
+
+            if x is not None and y is not None:
+                try:
+                    self._objects_index[row_key] = (int(x), int(y))
+                except Exception:
+                    pass
+
             row = [
                 Text(str(obj.get("id", "")) or "-", style="dim", justify="right"),
                 Text(obj_type.capitalize(), style=type_styles.get(obj_type, "white")),
                 Text(str(obj.get("name", "-")), style="bold white"),
-                Text(str(obj.get("x", "-")), style="dim"),
-                Text(str(obj.get("y", "-")), style="dim"),
+                Text(str(x if x is not None else "-"), style="dim"),
+                Text(str(y if y is not None else "-"), style="dim"),
                 Text(str(obj.get("material_stored", "-")), style="italic #03AC13"),
                 Text(str(obj.get("material_capacity", "-")), style="italic #03AC13"),
             ]
-            self.objectsPanel.add_row(*row)
+            self.objectsPanel.add_row(*row, key=row_key)
+
+        # Palauta valinta jos mahdollista
+        if selected_key:
+            try:
+                first_col_key = (
+                    self.objectsPanel.columns[0].key if self.objectsPanel.columns else 0
+                )
+                self.objectsPanel.cursor_coordinate = (selected_key, first_col_key)
+                self.objectsPanel.select_row(selected_key)
+            except Exception:
+                pass
+
+        # Paneeli ajantasalla -> ei tarvetta päivittää joka tick
+        self._objects_dirty = False
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Siirrä kartta valitun objektin koordinaatteihin objects-paneelista."""
+        if event.data_table.id != "objectsPanel":
+            return
+
+        pos = self._objects_index.get(event.row_key)
+        if not pos:
+            return
+
+        x, y = pos
+
+        # Vieritä näkyviin ja pyri keskittämään valittu solu
+        try:
+            view_width = self.mapPanel.size.width if self.mapPanel.size else None
+        except Exception:
+            view_width = None
+        try:
+            view_height = self.mapPanel.size.height if self.mapPanel.size else None
+        except Exception:
+            view_height = None
+
+        map_width = getattr(self.game_map, "width", None)
+        map_height = getattr(self.game_map, "height", None)
+
+        # Laske haluttu kohderivi niin että valittu solu olisi keskellä näkymää
+        target_row = y
+        if view_height and map_height:
+            offset_row = max(0, min(map_height - 1, y - max(0, view_height // 2)))
+            target_row = offset_row
+
+        target_col = x
+        if view_width and map_width:
+            offset_col = max(0, min(map_width - 1, x - max(0, view_width // 2)))
+            target_col = offset_col
+
+        try:
+            self.mapPanel.scroll_to_row(target_row)
+        except Exception:
+            try:
+                self.mapPanel.scroll_to_row(y)
+            except Exception:
+                pass
+
+        try:
+            self.mapPanel.scroll_to_column(target_col)
+        except Exception:
+            try:
+                self.mapPanel.scroll_to_column(x)
+            except Exception:
+                pass
+
+        try:
+            self.mapPanel.cursor_coordinate = (y, x)
+        except Exception:
+            pass
 
     def update_game_ui(self) -> None:
         """Päivitä käyttöliittymä pelisilmukan kutsumana."""
         # Päivitä tilanäyttö
         if self.statusPanel:
-            status = "TAUOLLA" if self.game_loop.paused else "KÄYNNISSÄ"
+            status = "PAUSED" if self.game_loop.paused else "RUNNING"
             self.statusPanel.update(
                 f"[bold cyan]Tila:[/bold cyan] {status}\n"
                 f"[bold cyan]Tick:[/bold cyan] {self.game_loop.tick_count}\n"
@@ -407,11 +513,12 @@ class KaivosAIApp(App):
         # Päivitä tapahtumapaneeli vain jos on uusia tapahtumia
         self._update_events_display_if_needed()
 
-        # Päivitä objects-paneeli ajantasaisilla tiedoilla
-        try:
-            self.refresh_objects_panel()
-        except Exception:
-            pass
+        # Päivitä objects-paneeli vain tarvittaessa
+        if getattr(self, "_objects_dirty", False):
+            try:
+                self.refresh_objects_panel()
+            except Exception:
+                pass
 
     def action_toggle_pause(self) -> None:
         """Vaihda pelin taukotila."""
@@ -423,7 +530,7 @@ class KaivosAIApp(App):
     def handle_settings_button(self, button_name: str) -> None:
         """Käsittele asetuspaneelin nappuloiden painallukset."""
         database.log_event(
-            self.dbconn, "button_pressed", f"Painettu nappia: {button_name}"
+            self.dbconn, "button_pressed", f"Button pressed: {button_name}"
         )
 
         if button_name == "ResetMap":
@@ -436,17 +543,18 @@ class KaivosAIApp(App):
             database.log_event(
                 self.dbconn,
                 "map_reset",
-                f"Kartta nollattu: {border_rocks} reunakiveä, {terrain_rocks} maastokiveä",
+                f"Map reset: {border_rocks} border rocks, {terrain_rocks} terrain rocks",
             )
             # Päivitä karttapaneeli
             try:
                 self.mapPanel.refresh_from_map()
+                self._objects_dirty = True
                 self.refresh_objects_panel()
             except Exception as e:
                 database.log_event(
                     self.dbconn,
                     "map_display_error",
-                    f"Virhe kartan päivittämisessä: {str(e)}",
+                    f"Error updating map display: {str(e)}",
                 )
 
         elif button_name == "AddBuildings":
@@ -456,22 +564,23 @@ class KaivosAIApp(App):
                 database.log_event(
                     self.dbconn,
                     "buildings_added",
-                    f"Lisätty {base_count} tukikohta, {mine_count} kaivosta, {storage_count} varastoa",
+                    f"Added {base_count} base, {mine_count} mine, {storage_count} storage",
                 )
                 # Päivitä karttapaneeli
                 self.mapPanel.refresh_from_map()
+                self._objects_dirty = True
                 self.refresh_objects_panel()
             except ValueError as e:
                 database.log_event(
                     self.dbconn,
                     "buildings_error",
-                    f"Virhe rakennusten lisäämisessä: {str(e)}",
+                    f"Error adding buildings: {str(e)}",
                 )
             except Exception as e:
                 database.log_event(
                     self.dbconn,
                     "buildings_error",
-                    f"Odottamaton virhe: {str(e)}",
+                    f"Unexpected error: {str(e)}",
                 )
 
         elif button_name == "Load":
@@ -494,7 +603,7 @@ class KaivosAIApp(App):
             self.eventsPanel.clear()
 
             if not events:
-                self.eventsPanel.write("Ei tapahtumia")
+                self.eventsPanel.write("(no events)")
                 return
 
             # Näytä jokainen tapahtuma
@@ -506,7 +615,7 @@ class KaivosAIApp(App):
                 message = event["message"] if "message" in event.keys() else event[3]
 
                 # Aikaleiman muotoilu
-                ts_display = timestamp if timestamp else "(ei aikaa)"
+                ts_display = timestamp if timestamp else "(no time)"
                 self.eventsPanel.write_line(f"[{ts_display}] {event_type}: {message}")
 
         except Exception as e:
@@ -545,18 +654,18 @@ class KaivosAIApp(App):
                 obj_count = self.game_map.object_count()
                 self.game_map.save_to_db()
                 database.log_event(
-                    self.dbconn, "map_save", f"Kartta tallennettu: {obj_count} objektia"
+                    self.dbconn, "map_save", f"Map saved: {obj_count} objects"
                 )
             except Exception as e:
                 database.log_event(
                     self.dbconn,
                     "map_save_error",
-                    f"Virhe kartan tallennuksessa: {str(e)}",
+                    f"Error saving map: {str(e)}",
                 )
 
         # Sulje tietokantayhteys
         if hasattr(self, "dbconn") and self.dbconn:
-            database.log_event(self.dbconn, "app_stop", "KaivosAI pysäytetty")
+            database.log_event(self.dbconn, "app_stop", "KaivosAI stopped")
             self.dbconn.close()
 
 
