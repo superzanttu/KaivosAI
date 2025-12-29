@@ -101,11 +101,11 @@ class GameMapPanel(DataTable):
             # If DataTable doesn't support row labels, ignore gracefully
             pass
  
-    def refresh_from_db(self):
-        """Refresh map table from database objects using map dimensions.
+    def refresh_from_map(self):
+        """Refresh map display from in-memory Map.cells.
 
-        Builds grid with objects already in place for reliable display.
-        Viewport: 40x30 for performance.
+        Builds grid with objects from game_map.cells for reliable display.
+        Viewport: configurable size for performance.
         """
         from rich.text import Text
         
@@ -122,22 +122,18 @@ class GameMapPanel(DataTable):
             self.add_row("No map", key=0, label="0")
             return
 
-        # Use viewport for performance
-        width = 100 # min(full_width, 40)
-        height = 100  # min(full_height, 30)
+        # Use viewport for performance (can be adjusted)
+        width = min(full_width, 40)
+        height = min(full_height, 30)
 
-        # Load all objects from database into a lookup dict
-        cur = self.app.dbconn.execute("SELECT x, y, type FROM game_objects")
+        # Read objects from in-memory Map.cells
         objects_dict = {}
-        for row in cur.fetchall():
-            try:
-                x = int(row["x"] if "x" in row.keys() else row[0])
-                y = int(row["y"] if "y" in row.keys() else row[1])
-                obj_type = row["type"] if "type" in row.keys() else row[2]
-                if 0 <= x < width and 0 <= y < height:
-                    objects_dict[(x, y)] = obj_type
-            except Exception:
-                continue
+        for pos, obj in self.app.game_map.cells.items():
+            x, y = pos
+            # Only include objects within viewport
+            if 0 <= x < width and 0 <= y < height:
+                obj_type = type(obj).__name__.lower()
+                objects_dict[(x, y)] = obj_type
 
         # Create columns
         for x in range(width):
@@ -176,7 +172,7 @@ class GameMapPanel(DataTable):
         
         # Log success
         import database
-        database.log_event(self.app.dbconn, "map_refresh", f"Map displayed: {marked_count} objects in {width}x{height} viewport")
+        database.log_event(self.app.dbconn, "map_refresh", f"Map displayed: {marked_count} objects in {width}x{height} viewport from memory")
 
         
 
@@ -237,6 +233,9 @@ class KaivosAIApp(App):
 
     def on_ready(self) -> None:
         """Called when the app is ready - start the game loop."""
+        # Log map status at startup
+        database.log_event(self.dbconn, "map_load", f"Map loaded from DB: {len(self.game_map.cells)} objects in memory")
+        
         self.game_loop = GameLoop(self, self.dbconn, tick_rate=1.0)
         self.game_worker = asyncio.create_task(self.game_loop.run())
         database.log_event(self.dbconn, "app_start", "KaivosAI application started")
@@ -258,9 +257,9 @@ class KaivosAIApp(App):
             except Exception as e:
                 database.log_event(self.dbconn, "map_init_error", f"Error initializing map: {str(e)}")
 
-        # Display the map
+        # Display the map from memory
         try:
-            self.mapPanel.refresh_from_db()
+            self.mapPanel.refresh_from_map()
         except Exception as e:
             database.log_event(self.dbconn, "map_display_error", f"Error displaying map: {str(e)}")
 
@@ -319,15 +318,16 @@ class KaivosAIApp(App):
         database.log_event(self.dbconn, "button_pressed", f"Settings button pressed: {button_name}")
         
         if button_name == "ResetMap":
-            # TODO: Implement save logic
+            # Reset map in memory and regenerate
             self.game_map.reset()
             border_rocks = self.game_map.generate_border_rocks()
-            database.log_event(self.dbconn, "map", f"Border rocks generated: {border_rocks}")
-            # Refresh map panel to reflect the change
+            random_rocks = self.game_map.generate_random_rocks(density=0.05)
+            database.log_event(self.dbconn, "map_reset", f"Map reset: {border_rocks} border rocks, {random_rocks} random rocks")
+            # Refresh map panel from memory
             try:
-                self.mapPanel.refresh_from_db()
-            except Exception:
-                pass
+                self.mapPanel.refresh_from_map()
+            except Exception as e:
+                database.log_event(self.dbconn, "map_display_error", f"Error refreshing map: {str(e)}")
 
         elif button_name == "Load":
             # TODO: Implement load logic
@@ -394,12 +394,14 @@ class KaivosAIApp(App):
         if hasattr(self, 'game_worker') and self.game_worker:
             self.game_worker.cancel()
 
-        # Persist map settings and any objects
+        # Persist map from memory to database
         if hasattr(self, 'game_map') and self.game_map:
             try:
+                obj_count = len(self.game_map.cells)
                 self.game_map.save_to_db()
-            except Exception:
-                pass
+                database.log_event(self.dbconn, "map_save", f"Map saved to DB: {obj_count} objects persisted")
+            except Exception as e:
+                database.log_event(self.dbconn, "map_save_error", f"Error saving map: {str(e)}")
         
         # Close database connection
         if hasattr(self, 'dbconn') and self.dbconn:

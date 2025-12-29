@@ -23,7 +23,7 @@ import threading
 import time
 import random
 
-from database import init_game_db, persist_object, delete_object_db, load_objects_from_db, log_event
+from database import init_game_db, delete_object_db, load_objects_from_db, log_event
 from models import Robot, Mine, Storage, Base, Rock
 from exceptions import MapError, ValidationError
 
