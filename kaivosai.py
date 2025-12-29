@@ -123,8 +123,8 @@ class GameMapPanel(DataTable):
             return
 
         # Use viewport for performance (can be adjusted)
-        width = min(full_width, 40)
-        height = min(full_height, 30)
+        width = min(full_width, 100)
+        height = min(full_height, 100)
 
         # Read objects from in-memory Map.cells
         objects_dict = {}

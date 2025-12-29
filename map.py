@@ -23,7 +23,17 @@ import threading
 import time
 import random
 
-from database import init_game_db, delete_object_db, load_objects_from_db, log_event
+from database import (
+    init_game_db, 
+    delete_object_db, 
+    load_objects_from_db, 
+    log_event,
+    get_map_settings,
+    save_map_settings,
+    clear_all_objects,
+    clear_all_settings,
+    persist_object
+)
 from models import Robot, Mine, Storage, Base, Rock
 from exceptions import MapError, ValidationError
 
@@ -53,21 +63,17 @@ class Map:
         Falls back to current in-memory defaults when settings are missing.
         """
         try:
-            cur = self.conn.execute("SELECT key, value FROM game_settings WHERE key IN ('map_width','map_height')")
-            rows = {row[0]: row[1] for row in cur.fetchall()}
+            settings = get_map_settings(self.conn)
             loaded_from_db = False
-            if 'map_width' in rows:
-                try:
-                    self.width = int(rows['map_width'])
-                    loaded_from_db = True
-                except (TypeError, ValueError):
-                    pass
-            if 'map_height' in rows:
-                try:
-                    self.height = int(rows['map_height'])
-                    loaded_from_db = True
-                except (TypeError, ValueError):
-                    pass
+            
+            if settings['width'] is not None:
+                self.width = settings['width']
+                loaded_from_db = True
+                
+            if settings['height'] is not None:
+                self.height = settings['height']
+                loaded_from_db = True
+            
             # Log map load event
             try:
                 if loaded_from_db:
@@ -75,7 +81,6 @@ class Map:
                 else:
                     log_event(self.conn, 'map_loaded', f"Map loaded with defaults: width={self.width}, height={self.height}")
             except Exception:
-                # Ignore logging failures
                 pass
         except Exception:
             # If anything goes wrong, keep defaults
@@ -141,29 +146,22 @@ class Map:
         if not self.conn:
             return
         try:
-            # Upsert map dimensions to game_settings
-            self.conn.execute(
-                "INSERT INTO game_settings(key,value) VALUES('map_width', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (str(self.width),)
-            )
-            self.conn.execute(
-                "INSERT INTO game_settings(key,value) VALUES('map_height', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (str(self.height),)
-            )
-            # Persist any objects present in memory (optional, noop if none)
+            # Save map dimensions using database API
+            save_map_settings(self.conn, self.width, self.height)
+            
+            # Persist any objects present in memory
             for pos, obj in list(self.cells.items()):
                 try:
                     persist_object(self.conn, obj)
                 except Exception:
                     # Continue on individual object persist errors
                     continue
-            self.conn.commit()
+            
             # Log map save event
             try:
                 obj_count = len(self.cells)
                 log_event(self.conn, 'map_saved', f"Map saved: width={self.width}, height={self.height}, objects={obj_count}")
             except Exception:
-                # Ignore logging failures
                 pass
         except Exception:
             # Avoid crashing on exit due to persistence issues
@@ -178,24 +176,23 @@ class Map:
         Clears:
             - All in-memory cells (objects dict)
             - All objects from the objects table in database
-            - Preserves map dimensions (width/height)
+            - All game settings
+            - Preserves map dimensions (width/height) in memory
         """
         # Clear in-memory objects
         self.cells.clear()
         
-        # Clear database objects if connection exists
+        # Clear database using database API
         if self.conn:
             try:
-                self.conn.execute("DELETE FROM game_objects")
-                self.conn.execute("DELETE FROM game_settings") 
-                self.conn.commit()
+                clear_all_objects(self.conn)
+                clear_all_settings(self.conn)
                 log_event(self.conn, 'map_reset', f"Map reset to empty state. Dimensions: {self.width}x{self.height}")
             except Exception as e:
                 try:
                     self.conn.rollback()
                 except Exception:
                     pass
-                # Log error but don't crash
                 try:
                     log_event(self.conn, 'map_reset_error', f"Error resetting map: {str(e)}")
                 except Exception:
