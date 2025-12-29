@@ -153,7 +153,7 @@ class Map:
             save_map_settings(self.conn, self.width, self.height, commit=False)
 
             # Remove any stale rows so DB mirrors in-memory state
-            self.conn.execute("DELETE FROM game_objects")
+            clear_all_objects(self.conn, commit=False)
 
             # Persist any objects present in memory without per-object commits
             for pos, obj in list(self.cells.items()):
@@ -207,18 +207,20 @@ class Map:
                 except Exception:
                     pass
 
-    def add_object(self, obj, pos: Position):
+    def add_object(self, obj, pos: Position, persist: bool = True):
         """Add object to map at specified position.
         
         Args:
             obj: Game object to add
             pos: (x, y) position to place object
+            persist: Whether to persist to DB immediately (set False for batch operations)
             
         Raises:
             ValueError: If position out of bounds or already occupied
             
         Note:
-            Automatically persists to database if connection available.
+            Automatically persists to database if connection available and persist=True.
+            For batch operations, set persist=False and commit manually afterward.
         """
         if not self.in_bounds(pos):
             raise ValueError("Position out of bounds")
@@ -227,7 +229,7 @@ class Map:
         if hasattr(obj, 'pos'):
             obj.pos = pos
         self.cells[pos] = obj
-        if self.conn:
+        if self.conn and persist:
             persist_object(self.conn, obj)
         return True
 
@@ -289,28 +291,144 @@ class Map:
         Note:
             Creates Rock objects on all four edges (top/bottom/left/right).
             Skips positions already occupied by other objects.
+            Uses batched persistence for better performance.
         """
         rocks_added = 0
         # Top and bottom edges
         for x in range(self.width):
             if (x, 0) not in self.cells:
                 rock = Rock(name=f"Border Rock", pos=(x, 0))
-                self.add_object(rock, (x, 0))
+                self.add_object(rock, (x, 0), persist=False)
                 rocks_added += 1
             if (x, self.height - 1) not in self.cells:
                 rock = Rock(name=f"Border Rock", pos=(x, self.height - 1))
-                self.add_object(rock, (x, self.height - 1))
+                self.add_object(rock, (x, self.height - 1), persist=False)
                 rocks_added += 1
         # Left and right edges
         for y in range(1, self.height - 1):
             if (0, y) not in self.cells:
                 rock = Rock(name=f"Border Rock", pos=(0, y))
-                self.add_object(rock, (0, y))
+                self.add_object(rock, (0, y), persist=False)
                 rocks_added += 1
             if (self.width - 1, y) not in self.cells:
                 rock = Rock(name=f"Border Rock", pos=(self.width - 1, y))
-                self.add_object(rock, (self.width - 1, y))
+                self.add_object(rock, (self.width - 1, y), persist=False)
                 rocks_added += 1
+        
+        # Batch persist all rocks in one transaction
+        if self.conn and rocks_added > 0:
+            try:
+                self.conn.execute("BEGIN")
+                for pos, obj in self.cells.items():
+                    if isinstance(obj, Rock):
+                        persist_object(self.conn, obj, commit=False)
+                self.conn.commit()
+            except Exception:
+                try:
+                    self.conn.rollback()
+                except Exception:
+                    pass
+        
+        return rocks_added
+
+    def _generate_rock_cluster(self, start_pos: Position, cluster_size: int) -> List[Position]:
+        """Generate a cluster of rock positions using random walk.
+        
+        Args:
+            start_pos: Starting position for the cluster
+            cluster_size: Target number of rocks in cluster
+            
+        Returns:
+            List of positions for the cluster
+        """
+        positions = [start_pos]
+        current_pos = start_pos
+        
+        # Random walk to create natural-looking cluster
+        for _ in range(cluster_size - 1):
+            # Try to add adjacent position
+            x, y = current_pos
+            directions = [
+                (x + 1, y), (x - 1, y),
+                (x, y + 1), (x, y - 1),
+                (x + 1, y + 1), (x - 1, y - 1),
+                (x + 1, y - 1), (x - 1, y + 1)
+            ]
+            
+            # Filter valid positions
+            valid = [
+                pos for pos in directions
+                if self.in_bounds(pos) and pos not in positions
+            ]
+            
+            if valid:
+                # Pick random adjacent cell with bias toward closer cells
+                next_pos = random.choice(valid)
+                positions.append(next_pos)
+                # Sometimes continue from new position, sometimes backtrack
+                if random.random() < 0.7:
+                    current_pos = next_pos
+        
+        return positions
+
+    def generate_terrain_rocks(self, density: float = 0.05, cluster_size: int = 3):
+        """Generate natural-looking rock formations inside the map.
+        
+        Args:
+            density: Probability of a rock cluster starting (0.0 to 1.0, default 0.05)
+            cluster_size: Average size of rock clusters (default 3)
+            
+        Returns:
+            Number of rocks added
+            
+        Note:
+            - Avoids edges (2 cells from border)
+            - Uses random walk algorithm for natural clustering
+            - Skips occupied positions
+            - Density of 0.05 = ~5% of cells become rock clusters
+            - Uses batched persistence for better performance
+        """
+        rocks_added = 0
+        added_rocks = []  # Track rocks for batch persistence
+        
+        # Avoid edges (already have border rocks)
+        for y in range(2, self.height - 2):
+            for x in range(2, self.width - 2):
+                # Skip if already occupied
+                if (x, y) in self.cells:
+                    continue
+                
+                # Random chance to start a cluster
+                if random.random() < density:
+                    # Create a cluster of rocks
+                    cluster_positions = self._generate_rock_cluster((x, y), cluster_size)
+                    for pos in cluster_positions:
+                        px, py = pos
+                        # Check bounds and if position is free
+                        if (1 <= px < self.width - 1 and 
+                            1 <= py < self.height - 1 and 
+                            pos not in self.cells):
+                            rock = Rock(name="Rock", pos=pos)
+                            try:
+                                self.add_object(rock, pos, persist=False)
+                                added_rocks.append(rock)
+                                rocks_added += 1
+                            except Exception:
+                                continue
+        
+        # Batch persist all rocks in one transaction
+        if self.conn and added_rocks:
+            try:
+                self.conn.execute("BEGIN")
+                for rock in added_rocks:
+                    persist_object(self.conn, rock, commit=False)
+                self.conn.commit()
+            except Exception:
+                try:
+                    self.conn.rollback()
+                except Exception:
+                    pass
+        
         return rocks_added
 
     def generate_random_rocks(self, count: int = 50, density: float = 0.05):
@@ -327,6 +445,7 @@ class Map:
         Note:
             Skips positions already occupied. Uses density if specified,
             otherwise places 'count' rocks at random valid positions.
+            Uses batched persistence for better performance.
         """
         # Calculate target count from density if specified
         if density > 0:
@@ -336,6 +455,7 @@ class Map:
         rocks_added = 0
         attempts = 0
         max_attempts = count * 10  # Avoid infinite loop
+        added_rocks = []  # Track rocks added for batch persistence
         
         while rocks_added < count and attempts < max_attempts:
             attempts += 1
@@ -347,13 +467,27 @@ class Map:
             if (x, y) in self.cells:
                 continue
             
-            # Add rock
+            # Add rock without immediate persistence
             rock = Rock(name=f"Rock", pos=(x, y))
             try:
-                self.add_object(rock, (x, y))
+                self.add_object(rock, (x, y), persist=False)
+                added_rocks.append(rock)
                 rocks_added += 1
             except Exception:
                 # Skip on error (shouldn't happen but be safe)
                 continue
+        
+        # Batch persist all rocks in one transaction
+        if self.conn and added_rocks:
+            try:
+                self.conn.execute("BEGIN")
+                for rock in added_rocks:
+                    persist_object(self.conn, rock, commit=False)
+                self.conn.commit()
+            except Exception:
+                try:
+                    self.conn.rollback()
+                except Exception:
+                    pass
         
         return rocks_added

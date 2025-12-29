@@ -435,14 +435,16 @@ def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.commit()
 
 
-def clear_all_objects(conn: sqlite3.Connection) -> None:
+def clear_all_objects(conn: sqlite3.Connection, commit: bool = True) -> None:
     """Delete all objects from game_objects table.
     
     Args:
         conn: Database connection
+        commit: Whether to commit immediately (set False for batch transactions)
     """
     conn.execute("DELETE FROM game_objects")
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def clear_all_settings(conn: sqlite3.Connection) -> None:

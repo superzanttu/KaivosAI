@@ -244,10 +244,10 @@ class KaivosAIApp(App):
         # Initialize map with rocks if empty (objects loaded in Map.__init__)
         if self.game_map.is_empty():
             try:
-                # Generate border and random rocks
+                # Generate border and terrain rocks
                 border_rocks = self.game_map.generate_border_rocks()
-                random_rocks = self.game_map.generate_random_rocks(density=0.05)
-                database.log_event(self.dbconn, "map_init", f"Map initialized: {border_rocks} border rocks, {random_rocks} random rocks")
+                terrain_rocks = self.game_map.generate_terrain_rocks(density=0.05, cluster_size=4)
+                database.log_event(self.dbconn, "map_init", f"Map initialized: {border_rocks} border rocks, {terrain_rocks} terrain rocks")
             except Exception as e:
                 database.log_event(self.dbconn, "map_init_error", f"Error initializing map: {str(e)}")
 
@@ -315,8 +315,8 @@ class KaivosAIApp(App):
             # Reset map in memory and regenerate
             self.game_map.reset()
             border_rocks = self.game_map.generate_border_rocks()
-            random_rocks = self.game_map.generate_random_rocks(density=0.05)
-            database.log_event(self.dbconn, "map_reset", f"Map reset: {border_rocks} border rocks, {random_rocks} random rocks")
+            terrain_rocks = self.game_map.generate_terrain_rocks(density=0.05, cluster_size=4)
+            database.log_event(self.dbconn, "map_reset", f"Map reset: {border_rocks} border rocks, {terrain_rocks} terrain rocks")
             # Refresh map panel from memory
             try:
                 self.mapPanel.refresh_from_map()
