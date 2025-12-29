@@ -109,8 +109,12 @@ class GameMapPanel(DataTable):
         """
         from rich.text import Text
         
-        # Clear any existing table content
-        self.clear()
+        # Clear any existing table content (including columns)
+        try:
+            self.clear(columns=True)
+        except Exception:
+            # Fallback if columns flag not supported
+            self.clear()
 
         # Determine map size from app's game_map
         full_width = getattr(self.app.game_map, "width", 0) or 0
