@@ -1,0 +1,257 @@
+# RoboBASIC - Robot Programming Language
+## KaivosAI Automation Language v2.0
+
+### About RoboBASIC
+**RoboBASIC** is a simple, label-based programming language designed for autonomous robot control in the KaivosAI mining simulation. The name combines "Robo" (robots) with "BASIC" to emphasize its simple, BASIC-inspired syntax that's easy to learn and use.
+
+### Design Philosophy
+- Simple, label-based scripting 
+- Autonomous material transfer between mines, storage, and bases
+- Conditional execution, control flow, and inter-robot messaging
+- No line numbers - uses readable labels for jumps
+- Inspired by BASIC, Assembly, and modern scripting languages
+
+---
+
+## Command Reference
+
+### Comments
+
+**; comment text**
+- Lines starting with `;` are comments (ignored by parser)
+- Comments can also appear at end of line after command
+- Everything after `;` is ignored
+- Example: `; This is a comment`
+- Example: `GOTO 5 ; Move to mine`
+- Example: `:LOOP ; Load materials`
+
+
+### Label Declaration
+
+**:LABEL**
+- Declares a jump target with name LABEL
+- Must be at start of line, followed by colon
+- Label names: uppercase letters/numbers
+- Example: `:LOOP` or `:START` or `:MINE5`
+- Labels can't be on same line as command
+
+
+
+
+### Movement commands 
+TARGET X Y
+- asettaa robotin kohteeksi koordinaatit X Y ja etsii reitin kohteeseen
+- jos koordinaatit eivät kelpaa --> ERROR(invalid coordinates)
+- jos koordinaatteihin ei löydy reittiä --> ERROR(no route to X Y)
+- esim: TARGET 13 1
+
+TARGET #ID
+- asettaa robotin kohteeksi objectin ID sijainnin ja etsii reitin kohteeseen
+- jos id:tä ei löydy --> ERROR(invalid id)
+- jos kohteeseen ei löydy reittiä --> ERROR(no route to #ID)
+- esim: TARGET #5
+
+MOVE
+- mikäli robotilla on kohde asetettuna, liiku seuraavaan ruutuun
+- mikäli robotilla ei ole kohdetta asetettuna --> ERROR(no target set)
+
+UP [N]
+DOWN [N]
+LEFT [N]
+RIGHT [N]
+- liiku suuntaan UP/DOWN/LEFT/RIGHT N ruudun verran
+- mikäli N puuttuu, liiku yksi ruutu
+
+### Material loading/unloading
+
+LOAD [N]
+- asettaa lastaamistavoitteeksi N määrän materiaalia
+- ilman N:ää lastataan kunnes: robotin tila on täysi, kaivoksen/varaston/tukikohdan tila on tyhjä
+- lastaa materiaalia aina viereisestä kaivoksesta/varastosta/tukikohdasta
+- ei lastaa koskaan toisesta robotista
+- esim: LOAD, LOAD 4
+
+UNLOAD [N]
+- asettaa purkamistavoitteeksi N määrän materiaalia
+- ilman N:ää puretaan kunnes: robotin tila on tyhjä, varaston/tukikohdan tila on täysi
+- purkaa materiaalin aina viereiseen tukikohtaan/varastoon
+- ei pura koskaan toiseen robottiin tai kaivokseen
+- esim: LUNOAD, UNLOAD 4
+
+### Control Flow Commands
+
+GOTO :LABEL
+- jatka suoritusta riviltä, joka alkaa :LABEL
+- jos riviä ei löydy --> ERROR (invalid label)
+- esim: GOTO :kala
+
+IF [NOT] TARGET GOTO :LABEL
+- jos robotilla on kohde asetettuna, jatka suoritysa :LABEL riviltä
+
+IF [NOT] LOADING GOTO :LABEL
+- jos robotti lastaa materiaalia, jatka suoritusta :LABEL riviltä
+- esim: IF LOADING GOTO :odotellaan
+
+IF [NOT] UNLOADING GOTO :LABEL
+- jos robotti puraa materiaalia, jatka suoritusta :LABEL riviltä
+- esim: IF UNLOADING GOTO :odotellaan
+
+IF [NOT] FULL GOTO :LABEL
+- If robot inventory is full (or NOT full with NOT), jump to label
+- Example: IF FULL GOTO :unload
+- Example: IF NOT FULL :blah
+
+IF [NOT] EMPTY GOTO :LABEL
+- If robot inventory is empty (or NOT empty with NOT), jump to label
+- Example: IF EMPTY GOTO :jee
+- Example: IF NOT EMPTY GOTO :outoa
+
+**WAIT N**
+- Pause execution for N seconds
+- Example: `WAIT 10`
+
+
+**END**
+- Stop program execution immediately
+- Robot becomes idle
+
+
+**NOP** (No Operation)
+- Empty line, does nothing
+- Used for spacing or placeholder
+- Can also be completely blank row
+
+
+
+
+
+
+
+
+## Implementation Notes
+
+### Robot state machine
+Robot can have following execution modes:
+- RUN : robot program is executed. When entering RUN execution mode robot's state is set to IDLE.
+- STOP : robot program is not executed
+- ERROR : robot have stopped for error
+
+While in RUN execution mode, robot can have followin states:
+- IDLE : not target set, not unloading/loadding
+- LOADING/UNLOADING : transferring material
+- MOVING : robot have target set
+- State can change:  MOVING <--> IDLE <--> LOADING/MOVING
+
+### Execution Model
+- Programs execute one command per game tick
+- Labels are resolved at program runtime
+- Simple movement commands (UP, DOWN, LEFT, RIGHT) block until destination reached or robot can't move on route
+- Directional moves (UP/DOWN/LEFT/RIGHT) are relative to current position
+- Load/unload commands start until transfer complete action (1 material/second)
+- Wait commands block for specified duration
+- Jump commands execute immediately
+- After last row code execution starts from first row
+
+### Label System
+- Labels must start with `:` and contain uppercase letters/numbers
+- Label names are case-sensitive (`:LOOP` ≠ `:loop`)
+- Labels can be on same line as command: `:START GOTO 5`
+- Undefined labels cause program error (halt execution)
+- No forward/backward restriction - can jump anywhere
+
+
+### Error Handling
+- Undefined labels: halt program, log error
+- Movement to invalid position: log error, continue
+- Load/unload with no adjacent object: log error, continue
+- Directional move out of bounds: clamp to map edge, continue
+- Load/unload with no adjacent object: log error, continue
+- Object ID not found: log error, continue
+
+### Robot State During Execution
+- Robot status shows: RUNNING (executing line N)
+- Can be interrupted with manual commands
+- Program state saved in robot.commands_text
+- Execution pointer saved in robot._program_counter (not yet implemented)
+
+### Future Enhancements (Not Yet Implemented)
+- Variables: SET X 5, IF X > 3
+- Math operations: ADD, SUB
+- Subroutines: CALL, RETURN
+- Event triggers: ON FULL, ON ARRIVE
+- Labels instead of line numbers: :LOOP, GOTO LOOP
+
+---
+
+
+
+## Syntax Grammar (EBNF-style)
+
+```
+program     ::= line*
+line        ::= [comment] | [label] command [comment] | label [comment] | NOP
+comment     ::= ";" TEXT
+label       ::= ":" IDENTIFIER
+command     ::= movement | transfer | control | utility | messaging
+movement    ::= "GOTO" target [distance] | direction NUMBER
+direction   ::= ("UP" | "U" | "DOWN" | "D" | "LEFT" | "L" | "RIGHT" | "R")
+target      ::= coords | objid | label
+coords      ::= NUMBER NUMBER
+objid       ::= NUMBER
+distance    ::= ("D" | "DISTANCE" | "DIST") NUMBER
+transfer    ::= ("LOAD" | "UNLOAD") [NUMBER]
+control     ::= conditional | jump | stop
+conditional ::= "IF" ["NOT"] condition label
+condition   ::= ("FULL" | "EMPTY") 
+             | ("NEAR" [count] proximity)
+             | (direction NUMBER scantype)
+             | ("RANGE" NUMBER scantype)
+             | ("MSG" objtype MESSAGE)
+direction   ::= ("U" | "D" | "L" | "R")
+scantype    ::= ("ANY" | "ROBOT" | "MINE" | "STORE" | "BASE" | "SRC" | "DST")
+count       ::= ("0" | "1" | "MANY")
+proximity   ::= ("SRC" | "DST" | "MINE" | "STORE" | "BASE" | "ROBOT")
+objtype     ::= ("ROBOT" | "MINE" | "STORE" | "BASE")
+jump        ::= "GOTO" label
+stop        ::= "END" | "STOP"
+messaging   ::= "SEND" broadcast MESSAGE | "CLEAR"
+broadcast   ::= ("ROBOTS" | "MINES" | "STORES" | "BASES")
+utility     ::= "WAIT" NUMBER
+IDENTIFIER  ::= [A-Z0-9]+ (max 10 chars)
+MESSAGE     ::= [A-Z]+ (max 8 chars)
+NUMBER      ::= [0-9]+
+NOP         ::= ""
+```
+
+---
+
+## Best Practices
+
+1. **Use Descriptive Labels**: `:MINE`, `:STORE`, `:WAIT` instead of `:L1`, `:L2`
+2. **Keep Labels Short**: Longer commands need shorter labels to fit 15 chars
+3. **Proximity Over IDs**: Use `IF NEAR MINE` instead of hard-coding positions
+4. **Message Naming**: Use clear, descriptive messages like `READY`, `FULL`, `STOP`
+5. **Broadcast Wisely**: Remember SEND broadcasts to ALL objects of type
+6. **Clear Messages**: Use `CLEAR` after processing messages to avoid confusion
+7. **Directional Movement**: Use U/D/L/R for relative movement, GOTO for absolute
+8. **Error Handling**: Always have `END` or `STOP` as fallback exit point
+9. **Dynamic Behavior**: Combine proximity checks with directional movement for adaptive robots
+10. **Testing**: Test with single robot before coordinating multiple robots
+
+---
+
+## Testing Recommendations
+
+1. **Basic Loop Test**: Single mine-to-storage loop (Example 1)
+2. **Proximity Test**: Dynamic source/destination finding (Example 2, 3, 7)
+3. **Directional Movement Test**: Patrol patterns with U/D/L/R (Example 4)
+4. **Label Jump Test**: Verify all labels resolve correctly
+5. **Broadcast Test**: Multiple robots receiving same message (Example 5)
+6. **Message Expiry Test**: Verify messages expire after 1 game hour
+7. **Type Filter Test**: Verify IF MSG [TYPE] filters correctly (Example 5)
+8. **Emergency Stop Test**: Base broadcasting STOP to all (Example 6)
+9. **Proximity Types Test**: Test IF NEAR MINE/STORE/BASE/ROBOT
+10. **Dynamic Pathfinding**: Robot finding sources without fixed coordinates
+
+---
+
