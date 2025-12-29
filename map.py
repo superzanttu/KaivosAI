@@ -1,20 +1,20 @@
-"""Game world map and spatial object management.
+"""Pelimaailman kartta ja objektien hallinta.
 
-Handles object placement, movement, pathfinding, and game tick logic.
-All game state interactions go through the Map class.
+Vastaa objektien sijoittelusta, liikkeistä, reitinhaunasta ja pelin tick-logiikasta.
+Kaikki pelitilan vuorovaikutus kulkee Map-luokan kautta.
 
-Key responsibilities:
-    - Spatial storage (position -> object mapping)
-    - Object lifecycle (add, remove, move)
-    - Robot movement with pathfinding (BFS algorithm)
-    - Material production/consumption ticks
-    - Robot transfer operations (loading/unloading)
-    - RoboBASIC program execution ticks
+Päävastuut:
+    - Sijaintien tallennus (koordinaatit -> objekti)
+    - Objektien elinkaari (lisäys, poisto, siirto)
+    - Robottien liike reitinhaunalla (BFS-algoritmi)
+    - Materiaalien tuotanto ja kulutus
+    - Robottien siirtooperaatiot (lastaus/purku)
+    - RoboBASIC-ohjelmien suoritus
     
-Threading:
-    - Main thread only (no background threads)
-    - All ticks called explicitly from CLI refresh_display()
-    - Uses DB connection from main thread
+Säikeistys:
+    - Vain pääsäie (ei taustasäikeitä)
+    - Kaikki tickit kutsutaan eksplisiittisesti CLI:n refresh_display():sta
+    - Käyttää tietokantayhteyttä pääsäikeestä
 """
 
 from typing import Tuple, Dict, Optional, List

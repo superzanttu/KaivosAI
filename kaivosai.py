@@ -30,28 +30,30 @@ COMMANDS = ["Robot commands","Move", "Mine", "Deposit", "Repair", "Scan",]
 BUTTON_NAMES = ["ResetMap", "Free1", "Free2",]
 
 class GameSettingsList(DataTable):
+    """Asetuslistanäkymä."""
+    
     def on_mount(self) -> None:
-        # Use the shared application connection instead of opening a new one
+        """Alustus: käytä jaettua tietokantayhteyttä."""
         self.dbconn = self.app.dbconn
         self.add_columns("Setting", "Value")
         self.cursor_type = "row"
         self.update_list()
 
     def update_list(self):
-        """Fetch and display game settings from database."""
+        """Hae ja näytä peliasetukset tietokannasta."""
         try:
-            # Get all game settings from database via shared helper
+            # Hae kaikki asetukset tietokannasta
             settings = database.get_all_settings(self.dbconn)
             
-            # Clear the panel
+            # Tyhjennä paneeli
             self.clear()
             
             if not settings:
-                # Add empty row if no settings
-                self.add_row("(no settings)", "")
+                # Lisää tyhjä rivi jos ei asetuksia
+                self.add_row("(ei asetuksia)", "")
                 return
             
-            # Display each setting
+            # Näytä jokainen asetus
             for setting in settings:
                 key = setting[0] if isinstance(setting, tuple) else setting["key"]
                 value = setting[1] if isinstance(setting, tuple) else setting["value"]
@@ -67,84 +69,81 @@ class GameSettingsList(DataTable):
 
 
 class GameSettingsPanel(Container):
-    """Custom container with settings list and control buttons."""
+    """Asetuspaneeli: sisältää asetuslistauksen ja hallintanapit."""
 
     def compose(self) -> ComposeResult:
-        """Compose the game settings panel with list and buttons."""
+        """Luo paneelin komponentit."""
         yield GameSettingsList(id="gamesettingsList")
         with HorizontalGroup(id="settingsButtonGroup"):
             for button_name in BUTTON_NAMES:
                 yield Button(button_name, id=f"btn_{button_name.lower()}", variant="primary")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button press events."""
+        """Käsittele nappulan painallus."""
         button_id = event.button.id
         button_name = event.button.label
-        # Send message to app to handle the button click
+        # Lähetä viesti sovellukselle käsittelyyn
         self.app.handle_settings_button(button_name)
                 
 
 
 class GameMapPanel(DataTable):
-    """A container for displaying the game map."""
+    """Karttanäkymä: näyttää pelikartan ruudukkona."""
 
     def on_mount(self):
+        """Alustus: aseta solukohdistin ja riviotsikot."""
         self.cursor_type = "cell"
-        # Show Y coordinate labels on the left
         try:
             self.show_row_labels = True
         except Exception:
-            # If DataTable doesn't support row labels, ignore gracefully
             pass
  
     def refresh_from_map(self):
-        """Refresh map display from in-memory Map.cells.
-
-        Builds grid with objects from game_map.cells for reliable display.
-        Viewport: configurable size for performance.
+        """Päivitä karttanäkymä muistissa olevasta Map.cells-rakenteesta.
+        
+        Rakentaa ruudukon objekteista luotettavaa näyttöä varten.
         """
         from rich.text import Text
         
-        # Clear any existing table content (including columns)
+        # Tyhjennä taulukko (sarakkeet mukaan lukien)
         try:
             self.clear(columns=True)
         except Exception:
-            # Fallback if columns flag not supported
             self.clear()
 
-        # Determine map size from app's game_map
+        # Hae kartan koko
         full_width = getattr(self.app.game_map, "width", 0) or 0
         full_height = getattr(self.app.game_map, "height", 0) or 0
 
-        # Guard against invalid dimensions
+        # Tarkista että mitat ovat kelvollisia
         if full_width <= 0 or full_height <= 0:
             self.add_column("X", key=0)
-            self.add_row("No map", key=0, label="0")
+            self.add_row("Ei karttaa", key=0, label="0")
             return
 
-        # Show full map
+        # Näytä koko kartta
         width = full_width
         height = full_height
 
-        # Read objects from map via its interface
+        # Lue objektit kartan rajapinnan kautta
         objects_dict = self.app.game_map.get_viewport_objects(width, height)
 
-        # Create columns with alternating colors for better readability
+        # Luo sarakkeet vuorotellen värillä luettavuuden parantamiseksi
         for x in range(width):
-            # Vaihda väri joka 5. sarakkeelle
+            # Vaihda väri parillisille sarakkeille
             if x % 2 == 0:            
                 col_label = Text(str(x), style="bold yellow")
             else:
                 col_label = Text(str(x), style="dim white")
             self.add_column(col_label, key=x)
 
-        # Build each row with objects already in place
+        # Rakenna rivit objektien kanssa
         marked_count = 0
         for y in range(height):
             row_data = []
             for x in range(width):
                 if (x, y) in objects_dict:
-                    # Object at this position
+                    # Objekti tässä paikassa
                     obj_type = objects_dict[(x, y)]
                     if obj_type == "rock":
                         # Tarkista naapurit jotta kivet näyttävät yhtenäisiltä
@@ -174,10 +173,10 @@ class GameMapPanel(DataTable):
                         row_data.append(Text("? ", style="bold red"))
                     marked_count += 1
                 else:
-                    # Empty cell (2 chars)
+                    # Tyhjä solu (2 merkkiä)
                     row_data.append(Text("··", style="dim"))
             
-            # Add row with label - vaihda väri joka 5. riville
+            # Lisää rivi otsikoilla - vaihda väri parillisille riveille
             if y % 2 == 0:
                 row_label = Text(str(y), style="bold yellow")
             else:
@@ -188,9 +187,9 @@ class GameMapPanel(DataTable):
             except Exception:
                 self.add_row(*row_data, key=y)
         
-        # Log success
+        # Kirjaa onnistunut päivitys
         import database
-        database.log_event(self.app.dbconn, "map_refresh", f"Map displayed: {marked_count} objects in {width}x{height} viewport from memory")
+        database.log_event(self.app.dbconn, "map_refresh", f"Kartta näytetty: {marked_count} objektia {width}x{height} ruudukossa")
 
         
 
@@ -199,20 +198,21 @@ class GameMapPanel(DataTable):
 
 
 class KaivosAIApp(App):
-    """A Textual app for KaivosAI game."""
+    """KaivosAI-pelin päätekstuaalinen käyttöliittymä."""
 
     CSS_PATH = "kaivosai.tcss"
 
     BINDINGS = [
-        ("q", "quit", "Quit"),
-        ("p", "toggle_pause", "Pause/Resume"),
+        ("q", "quit", "Lopeta"),
+        ("p", "toggle_pause", "Tauko/Jatka"),
     ]
 
     def __init__(self):
+        """Alustus: luo tietokantayhteys ja lataa kartta."""
         super().__init__()
         self.dbconn = database.get_connection()
         database.init_game_db(self.dbconn)
-        # Create or load map from database
+        # Luo tai lataa kartta tietokannasta
         self.game_map = map.Map(conn=self.dbconn)
 
         self.mapPanel: GameMapPanel
@@ -227,12 +227,12 @@ class KaivosAIApp(App):
         self.game_loop: GameLoop
         self.game_worker = None
 
-        # Cache the latest event id to avoid unnecessary redraws
+        # Välimuisti viimeisimmän tapahtuman ID:lle turhien päivitysten välttämiseksi
         self._last_event_id = None
 
 
     def compose(self) -> ComposeResult:
-        """Create child widgets for the app."""
+        """Luo sovelluksen komponentit."""
         yield Header(show_clock=True)
         yield Footer()
         self.mapPanel = GameMapPanel(classes="panel", id="mapPanel")
@@ -250,41 +250,40 @@ class KaivosAIApp(App):
         yield self.gamesettingsPanel
 
     def on_ready(self) -> None:
-        """Called when the app is ready - start the game loop."""
-        # Log map status at startup
-        database.log_event(self.dbconn, "map_load", f"Map loaded from DB: {self.game_map.object_count()} objects in memory")
+        """Kutsutaan kun sovellus on valmis - käynnistä pelisilmukka."""
+        # Kirjaa kartan tila käynnistyksessä
+        database.log_event(self.dbconn, "map_load", f"Kartta ladattu: {self.game_map.object_count()} objektia muistissa")
         
         self.game_loop = GameLoop(self, self.dbconn, tick_rate=1.0)
         self.game_worker = asyncio.create_task(self.game_loop.run())
-        database.log_event(self.dbconn, "app_start", "KaivosAI application started")
+        database.log_event(self.dbconn, "app_start", "KaivosAI käynnistetty")
         
-        # Force initial events render so panel isn't empty at startup
+        # Pakota tapahtumapaneelin alkuperäinen renderöinti
         try:
             self._update_events_display()
             self._last_event_id = database.get_latest_event_id(self.dbconn)
         except Exception:
             pass
 
-        # Initialize map with rocks if empty (objects loaded in Map.__init__)
+        # Alusta kartta kivilla jos tyhjä (objektit ladattu Map.__init__:ssa)
         if self.game_map.is_empty():
             try:
-                # Generate border and terrain rocks
+                # Generoi reunakivet ja maastokivet
                 border_rocks = self.game_map.generate_border_rocks()
                 terrain_rocks = self.game_map.generate_terrain_rocks(density=0.05, cluster_size=4)
-                database.log_event(self.dbconn, "map_init", f"Map initialized: {border_rocks} border rocks, {terrain_rocks} terrain rocks")
+                database.log_event(self.dbconn, "map_init", f"Kartta alustettu: {border_rocks} reunakiveä, {terrain_rocks} maastokiveä")
             except Exception as e:
-                database.log_event(self.dbconn, "map_init_error", f"Error initializing map: {str(e)}")
+                database.log_event(self.dbconn, "map_init_error", f"Virhe kartan alustuksessa: {str(e)}")
 
-        # Display the map from memory
+        # Näytä kartta muistista
         try:
             self.mapPanel.refresh_from_map()
         except Exception as e:
-            database.log_event(self.dbconn, "map_display_error", f"Error displaying map: {str(e)}")
+            database.log_event(self.dbconn, "map_display_error", f"Virhe kartan näyttämisessä: {str(e)}")
 
 
     def on_mount(self) -> None:
-        """Mount the app and start the background game loop."""
-        # Call parent's on_mount methods
+        """Liitä sovellus ja aseta otsikot."""
         self.title = "KaivosAI v" + VERSION
         self.mapPanel.border_title = "Map"
         
@@ -311,41 +310,41 @@ class KaivosAIApp(App):
         self.gamesettingsPanel.border_title = "Game Settings"
     
     def update_game_ui(self) -> None:
-        """Called by game loop to refresh UI with current game state."""
-        # Update status/tick display
+        """Päivitä käyttöliittymä pelisilmukan kutsumana."""
+        # Päivitä tilanäyttö
         if self.statusPanel:
-            status = "PAUSED" if self.game_loop.paused else "RUNNING"
+            status = "TAUOLLA" if self.game_loop.paused else "KÄYNNISSÄ"
             self.statusPanel.update(
-                f"[bold cyan]Status:[/bold cyan] {status}\n"
+                f"[bold cyan]Tila:[/bold cyan] {status}\n"
                 f"[bold cyan]Tick:[/bold cyan] {self.game_loop.tick_count}\n"
-                f"[bold cyan]Time:[/bold cyan] {self.game_loop.last_tick_time.strftime('%H:%M:%S')}"
+                f"[bold cyan]Aika:[/bold cyan] {self.game_loop.last_tick_time.strftime('%H:%M:%S')}"
             )
         
-        # Update events panel only if there are new events
+        # Päivitä tapahtumapaneeli vain jos on uusia tapahtumia
         self._update_events_display_if_needed()
     
     def action_toggle_pause(self) -> None:
-        """Toggle game pause state."""
+        """Vaihda pelin taukotila."""
         if self.game_loop.paused:
             self.game_loop.resume()
         else:
             self.game_loop.pause()
     
     def handle_settings_button(self, button_name: str) -> None:
-        """Handle settings panel button presses."""
-        database.log_event(self.dbconn, "button_pressed", f"Settings button pressed: {button_name}")
+        """Käsittele asetuspaneelin nappuloiden painallukset."""
+        database.log_event(self.dbconn, "button_pressed", f"Painettu nappia: {button_name}")
         
         if button_name == "ResetMap":
-            # Reset map in memory and regenerate
+            # Nollaa kartta ja luo uudelleen
             self.game_map.reset()
             border_rocks = self.game_map.generate_border_rocks()
             terrain_rocks = self.game_map.generate_terrain_rocks(density=0.05, cluster_size=4)
-            database.log_event(self.dbconn, "map_reset", f"Map reset: {border_rocks} border rocks, {terrain_rocks} terrain rocks")
-            # Refresh map panel from memory
+            database.log_event(self.dbconn, "map_reset", f"Kartta nollattu: {border_rocks} reunakiveä, {terrain_rocks} maastokiveä")
+            # Päivitä karttapaneeli
             try:
                 self.mapPanel.refresh_from_map()
             except Exception as e:
-                database.log_event(self.dbconn, "map_display_error", f"Error refreshing map: {str(e)}")
+                database.log_event(self.dbconn, "map_display_error", f"Virhe kartan päivittämisessä: {str(e)}")
 
         elif button_name == "Load":
             # TODO: Implement load logic
@@ -355,30 +354,29 @@ class KaivosAIApp(App):
             self._update_events_display()
     
     def _update_events_display(self) -> None:
-        """Fetch and display recent events from database in eventsPanel."""
+        """Hae ja näytä viimeisimmät tapahtumat tietokannasta."""
         if not self.eventsPanel:
             return
         
         try:
-            # Get 100 most recent events from database
+            # Hae 100 viimeisintä tapahtumaa
             events = database.get_recent_events(self.dbconn, limit=100)
             
-            # Clear the panel and write events
+            # Tyhjennä paneeli ja kirjoita tapahtumat
             self.eventsPanel.clear()
             
             if not events:
-                self.eventsPanel.write("No events yet")
+                self.eventsPanel.write("Ei tapahtumia")
                 return
             
-            # Display each event
+            # Näytä jokainen tapahtuma
             for event in events:
-                # Rows are sqlite3.Row so keys are available
                 timestamp = event["timestamp"] if "timestamp" in event.keys() else None
                 event_type = event["event_type"] if "event_type" in event.keys() else event[2]
                 message = event["message"] if "message" in event.keys() else event[3]
 
-                # Fallback timestamp formatting
-                ts_display = timestamp if timestamp else "(no time)"
+                # Aikaleiman muotoilu
+                ts_display = timestamp if timestamp else "(ei aikaa)"
                 self.eventsPanel.write_line(f"[{ts_display}] {event_type}: {message}")
                 
         except Exception as e:
@@ -386,48 +384,48 @@ class KaivosAIApp(App):
             self.eventsPanel.write_line(f"Error loading events: {str(e)}")
     
     def _update_events_display_if_needed(self) -> None:
-        """Refresh events panel only when new events exist."""
+        """Päivitä tapahtumapaneeli vain jos uusia tapahtumia on."""
         try:
             latest_id = database.get_latest_event_id(self.dbconn)
         except Exception:
-            # On query error, fallback to full redraw
+            # Virhetilanteessa piirretään kaikki uudelleen
             latest_id = None
 
-        # If no change, skip redraw
+        # Jos ei muutoksia, ohita päivitys
         if latest_id is not None and latest_id == self._last_event_id:
             return
 
-        # Redraw and update cache
+        # Päivitä näyttö ja välimuisti
         self._update_events_display()
         self._last_event_id = latest_id
 
     
     def on_unmount(self) -> None:
-        """Clean up resources before app shuts down."""
-        # Stop game loop if it exists
+        """Siivoa resurssit ennen sulkemista."""
+        # Pysäytä pelisilmukka
         if hasattr(self, 'game_loop') and self.game_loop:
             self.game_loop.stop()
         
-        # Cancel the worker if it exists
+        # Peruuta taustaprosessi
         if hasattr(self, 'game_worker') and self.game_worker:
             self.game_worker.cancel()
 
-        # Persist map from memory to database
+        # Tallenna kartta muistista tietokantaan
         if hasattr(self, 'game_map') and self.game_map:
             try:
                 obj_count = self.game_map.object_count()
                 self.game_map.save_to_db()
-                database.log_event(self.dbconn, "map_save", f"Map saved to DB: {obj_count} objects persisted")
+                database.log_event(self.dbconn, "map_save", f"Kartta tallennettu: {obj_count} objektia")
             except Exception as e:
-                database.log_event(self.dbconn, "map_save_error", f"Error saving map: {str(e)}")
+                database.log_event(self.dbconn, "map_save_error", f"Virhe kartan tallennuksessa: {str(e)}")
         
-        # Close database connection
+        # Sulje tietokantayhteys
         if hasattr(self, 'dbconn') and self.dbconn:
-            database.log_event(self.dbconn, "app_stop", "KaivosAI application stopped")
+            database.log_event(self.dbconn, "app_stop", "KaivosAI pysäytetty")
             self.dbconn.close()
 
 def main():
-    """Run the KaivosAI application."""
+    """Käynnistä KaivosAI-sovellus."""
     app = KaivosAIApp()
     app.run()
 
