@@ -30,12 +30,9 @@ COMMANDS = ["Robot commands","Move", "Mine", "Deposit", "Repair", "Scan",]
 BUTTON_NAMES = ["ResetMap", "Free1", "Free2",]
 
 class GameSettingsList(DataTable):
-
-    def __init__(self, id: str = None):
-        super().__init__(id=id)
-        self.dbconn = database.get_connection()
-    
     def on_mount(self) -> None:
+        # Use the shared application connection instead of opening a new one
+        self.dbconn = self.app.dbconn
         self.add_columns("Setting", "Value")
         self.cursor_type = "row"
         self.update_list()
@@ -43,9 +40,8 @@ class GameSettingsList(DataTable):
     def update_list(self):
         """Fetch and display game settings from database."""
         try:
-            # Get all game settings from database
-            cur = self.dbconn.execute("SELECT key, value FROM game_settings ORDER BY key")
-            settings = cur.fetchall()
+            # Get all game settings from database via shared helper
+            settings = database.get_all_settings(self.dbconn)
             
             # Clear the panel
             self.clear()

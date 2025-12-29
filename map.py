@@ -31,7 +31,7 @@ from database import (
     get_map_settings,
     save_map_settings,
     clear_all_objects,
-    clear_all_settings,
+    clear_map_settings,
     persist_object
 )
 from models import Robot, Mine, Storage, Base, Rock
@@ -146,17 +146,26 @@ class Map:
         if not self.conn:
             return
         try:
-            # Save map dimensions using database API
-            save_map_settings(self.conn, self.width, self.height)
-            
-            # Persist any objects present in memory
+            # Begin a single transaction for atomic persistence
+            self.conn.execute("BEGIN")
+
+            # Save map dimensions using database API without auto-commit
+            save_map_settings(self.conn, self.width, self.height, commit=False)
+
+            # Remove any stale rows so DB mirrors in-memory state
+            self.conn.execute("DELETE FROM game_objects")
+
+            # Persist any objects present in memory without per-object commits
             for pos, obj in list(self.cells.items()):
                 try:
-                    persist_object(self.conn, obj)
+                    persist_object(self.conn, obj, commit=False)
                 except Exception:
                     # Continue on individual object persist errors
                     continue
-            
+
+            # Commit the full transaction once
+            self.conn.commit()
+
             # Log map save event
             try:
                 obj_count = len(self.cells)
@@ -176,7 +185,7 @@ class Map:
         Clears:
             - All in-memory cells (objects dict)
             - All objects from the objects table in database
-            - All game settings
+            - Map width/height settings in database
             - Preserves map dimensions (width/height) in memory
         """
         # Clear in-memory objects
@@ -186,7 +195,7 @@ class Map:
         if self.conn:
             try:
                 clear_all_objects(self.conn)
-                clear_all_settings(self.conn)
+                clear_map_settings(self.conn)
                 log_event(self.conn, 'map_reset', f"Map reset to empty state. Dimensions: {self.width}x{self.height}")
             except Exception as e:
                 try:

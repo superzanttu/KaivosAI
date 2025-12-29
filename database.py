@@ -98,7 +98,7 @@ def init_game_db(conn: sqlite3.Connection):
     conn.commit()
 
 
-def persist_object(conn: sqlite3.Connection, obj):
+def persist_object(conn: sqlite3.Connection, obj, commit: bool = True):
     """Save or update game object in database (UPSERT operation).
     
     Uses ON CONFLICT(x,y) DO UPDATE to handle position uniqueness constraint.
@@ -109,7 +109,7 @@ def persist_object(conn: sqlite3.Connection, obj):
         obj: Game object (Robot, Mine, Storage, Base, Rock)
         
     Note:
-        Auto-commits the transaction.
+        Auto-commits the transaction unless commit=False (for bulk saves).
         Position (x,y) is the natural key - only one object per cell.
         
     Example:
@@ -170,7 +170,8 @@ def persist_object(conn: sqlite3.Connection, obj):
                 """,
                 vals,
             )
-        conn.commit()
+        if commit:
+            conn.commit()
 
         # Retrieve the canonical id for this position and assign to object
         if vals['x'] is not None and vals['y'] is not None:
@@ -199,7 +200,8 @@ def persist_object(conn: sqlite3.Connection, obj):
                     "INSERT INTO game_objects (type, name, x, y, material_capacity, material_stored, robobasic_code) VALUES (:type, :name, :x, :y, :material_capacity, :material_stored, :robobasic_code)",
                     vals,
                 )
-            conn.commit()
+            if commit:
+                conn.commit()
             new_id = cur.lastrowid if obj_id is None else obj_id
             try:
                 setattr(obj, 'id', new_id)
@@ -367,13 +369,14 @@ def get_map_settings(conn: sqlite3.Connection) -> dict:
         return {'width': None, 'height': None}
 
 
-def save_map_settings(conn: sqlite3.Connection, width: int, height: int) -> None:
+def save_map_settings(conn: sqlite3.Connection, width: int, height: int, commit: bool = True) -> None:
     """Save map dimensions to game_settings.
-    
+
     Args:
         conn: Database connection
         width: Map width
         height: Map height
+        commit: Whether to commit immediately (set False for batch transactions)
     """
     conn.execute(
         "INSERT INTO game_settings(key, value) VALUES('map_width', ?) "
@@ -385,7 +388,17 @@ def save_map_settings(conn: sqlite3.Connection, width: int, height: int) -> None
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         (str(height),)
     )
-    conn.commit()
+    if commit:
+        conn.commit()
+
+
+def get_all_settings(conn: sqlite3.Connection):
+    """Return all settings rows as a list of (key, value) pairs."""
+    try:
+        cur = conn.execute("SELECT key, value FROM game_settings ORDER BY key")
+        return cur.fetchall()
+    except Exception:
+        return []
 
 
 def get_setting(conn: sqlite3.Connection, key: str) -> Optional[str]:
@@ -439,6 +452,12 @@ def clear_all_settings(conn: sqlite3.Connection) -> None:
         conn: Database connection
     """
     conn.execute("DELETE FROM game_settings")
+    conn.commit()
+
+
+def clear_map_settings(conn: sqlite3.Connection) -> None:
+    """Delete map-specific settings only (width/height)."""
+    conn.execute("DELETE FROM game_settings WHERE key IN ('map_width', 'map_height')")
     conn.commit()
 
 
