@@ -1,5 +1,5 @@
-# RoboBASIC - Robot Programming Language
-## KaivosAI Automation Language v1.0
+# RoboBASIC 1.0 - Robot Programming Language
+## KaivosAI Automation Language
 
 ### About RoboBASIC
 **RoboBASIC** is a simple, label-based programming language designed for autonomous robot control in the KaivosAI mining simulation. The name combines "Robo" (robots) with "BASIC" to emphasize its simple, BASIC-inspired syntax that's easy to learn and use.
@@ -70,17 +70,23 @@
 ### Material Loading/Unloading
 
 **LOAD [N]**
-- Sets loading target to N amount of material
-- Without N: load until robot is full OR source (mine/storage/base) is empty
-- Always loads from adjacent mine/storage/base
-- Never loads from other robots
+- Initiates material loading operation
+- With N: load exactly N amount of material (1 material unit per game tick)
+- Without N: load until robot is full OR source (adjacent mine/storage/base) is empty
+- Always loads from adjacent tile (directly next to robot)
+- Never loads from other robots or empty locations
+- Continues until condition met (use IF LOADING to check status)
+- ERROR if no adjacent object with material
 - Example: `LOAD` or `LOAD 4`
 
 **UNLOAD [N]**
-- Sets unloading target to N amount of material
-- Without N: unload until robot is empty OR destination (storage/base) is full
-- Always unloads to adjacent base/storage
+- Initiates material unloading operation
+- With N: unload exactly N amount of material (1 material unit per game tick)
+- Without N: unload until robot is empty OR destination (adjacent storage/base) is full
+- Always unloads to adjacent tile (directly next to robot)
 - Never unloads to other robots or mines
+- Continues until condition met (use IF UNLOADING to check status)
+- ERROR if no adjacent storage/base location
 - Example: `UNLOAD` or `UNLOAD 4`
 
 ### Control Flow Commands
@@ -123,8 +129,10 @@
 - Example: `IF NOT EMPTY GOTO :unload`
 
 **WAIT N**
-- Pause execution for N seconds
-- Example: `WAIT 10`
+- Pause program execution for N game ticks (N must be positive integer)
+- Robot state remains unchanged while waiting
+- After N ticks, execution continues to next command
+- Example: `WAIT 10` pauses for 10 game ticks
 
 **END**
 - Stop program execution immediately
@@ -156,24 +164,32 @@ Robot can have the following execution modes (robot.execution_mode):
 
 While in RUN execution mode, robot can have the following STATE (robot.state):
 - **IDLE**: No target set, not loading/unloading
-- **LOADING/UNLOADING**: Transferring material
-- **MOVING**: Robot has target set
-- **BLOCKED**: Robot cannot move on current path
-- **TARGET**: Robot has arrived at target location
+- **MOVING**: Robot has target set and pathfinding route exists
+- **BLOCKED**: Robot has target set but cannot move (path blocked or invalid)
+- **LOADING**: Currently transferring material from adjacent location
+- **UNLOADING**: Currently transferring material to adjacent location
+- **TARGET**: Robot's position equals target position (goal reached)
 
 
 
 ### Execution Model
 - Programs execute one command per game tick
-- Labels are resolved at program runtime
-- SET TARGET, UP/DOWN/LEFT/RIGHT, LOAD, UNLOAD commands are non-blocking (execute once, then continue)
-- MOVE command attempts one step along path, then continues to next command
-- If MOVE cannot move, robot enters BLOCKED state
-- LOAD/UNLOAD continue running until transfer complete (check with IF LOADING/UNLOADING)
-- WAIT command blocks for specified duration (pauses program execution)
-- GOTO commands execute immediately
-- After last row, execution continues from first row
-- When robot arrives at target location, state is set to TARGET
+- Labels are resolved at parse time (before execution begins)
+- SET TARGET, UP/DOWN/LEFT/RIGHT, LOAD, UNLOAD commands are non-blocking:
+  - Execute once, set/initiate their action, then continue to next command
+  - LOAD/UNLOAD continue running in background until complete (check with IF LOADING/UNLOADING)
+  - UP/DOWN/LEFT/RIGHT calculate new target position and immediately continue
+- MOVE command:
+  - Attempts one step along current path per tick
+  - If target reached, enters TARGET state
+  - If path blocked, enters BLOCKED state and continues to next command
+  - Robot does not move if already in TARGET state
+- WAIT command blocks execution for N ticks (robot state unchanged)
+- GOTO commands execute immediately (no time cost)
+- IF commands evaluate condition immediately and jump or continue (no time cost)
+- After last command in program, execution loops to first command
+- Program continues executing unless END command or ERROR occurs
+- IF statement without jump continues to next command if condition is false
 
 ### Label System
 - Labels must start with `:` and contain uppercase letters and numbers
@@ -184,20 +200,64 @@ While in RUN execution mode, robot can have the following STATE (robot.state):
 
 
 ### Error Handling
-- Label not found → ERROR(invalid label: LABEL_NAME)
-- Object ID not found → ERROR(invalid id: ID)
-- No route to target ID → ERROR(no route to ID)
-- Invalid coordinates → ERROR(invalid coordinates)
-- No route to coordinates → ERROR(no route to X Y)
-- Movement to invalid position: log error, continue
-- Load/unload with no adjacent object: log error, continue
-- Directional move out of bounds: clamp to map edge, continue
+- **Label not found**: ERROR(invalid label: LABEL_NAME) - program halts immediately
+- **Object ID not found**: ERROR(invalid id: ID) - program halts immediately (SET TARGET #ID)
+- **No route to target**: State is set to BLOCKED, program continues (SET TARGET or direction command)
+- **Invalid coordinates**: ERROR(invalid coordinates: X Y) - coordinates out of bounds
+- **Invalid material amount**: ERROR(invalid amount: N) - N must be positive integer for LOAD/UNLOAD
+- **No adjacent object**: Operation fails silently, program continues (LOAD/UNLOAD with no adjacent location)
+- **Directional move out of bounds**: Target is clamped to map edge, program continues (UP/DOWN/LEFT/RIGHT)
+- **WAIT with invalid parameter**: ERROR(invalid wait time: N) - N must be positive integer
 
 ### Robot State During Execution
 - Robot status shows: RUNNING (executing line N)
 - Can be interrupted with manual commands
 - Program state saved in robot.program_text
 - Execution pointer saved in robot.program_counter
+
+---
+
+## Interpreter Implementation Guide
+
+### Parser Requirements
+- Case-sensitive parsing (labels and keywords)
+- Whitespace is insignificant except for separating tokens
+- Comments extend from `;` to end of line
+- Label validation: must match pattern `[A-Z0-9]+`, must be unique in program
+- Integer validation: all numeric parameters must be valid integers ≥ 0
+
+### Execution Requirements
+- Single command per game tick execution with loop back to start
+- Maintain instruction pointer (line number)
+- Handle label lookups at parse time, not runtime
+- GOTO and IF commands execute immediately (no tick cost)
+- All other commands consume exactly 1 game tick
+- LOAD/UNLOAD continue progress in background on each tick while active
+
+### State Management
+- Track robot position (X, Y)
+- Track robot target position (X, Y) or None
+- Track robot inventory (current amount, capacity)
+- Track robot state (IDLE, MOVING, BLOCKED, LOADING, UNLOADING, TARGET)
+- Track program counter and current line
+- Track if LOAD/UNLOAD operation is active and current progress
+
+### Command Execution Order
+1. Parse program into tokens/instructions (pre-execution)
+2. Validate all labels exist and are unique
+3. Each game tick:
+   - Fetch instruction at program counter
+   - Parse and execute command
+   - If command is GOTO or IF (conditional jump):
+     - Evaluate condition (IF only)
+     - Jump to label or continue if condition false
+     - No tick consumed (jump is free)
+   - If command is other (SET TARGET, MOVE, LOAD, UNLOAD, WAIT, etc.):
+     - Execute command (1 tick consumed)
+     - Increment program counter
+   - Update LOAD/UNLOAD progress if active
+   - If program counter >= program length, reset to 0
+   - Return to game loop
 
 ---
 
