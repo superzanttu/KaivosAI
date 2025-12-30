@@ -10,6 +10,7 @@
 - Conditional execution, control flow, and inter-robot messaging
 - No line numbers - uses readable labels for jumps
 - Inspired by BASIC, Assembly, and modern scripting languages
+- Commands are non blocking. Except: wait
 - No variables
 - No loops
 ---
@@ -23,7 +24,7 @@
 - Comments can also appear at end of line after command
 - Everything after `;` is ignored
 - Example: `; This is a comment`
-- Example: `GOTO 5 ; Move to mine`
+- Example: `GOTO :mine ; Move to mine`
 - Example: `:LOOP ; Load materials`
 
 
@@ -41,25 +42,30 @@
 
 ### Movement Commands
 
-**TARGET X Y**
+**SET TARGET X Y**
 - Sets robot target to coordinates X Y and finds path to target
-- Example: `TARGET 13 1`
+- Target is stored with robot (robot.target)
+- Example: `SET TARGET 13 1`
 
-**TARGET #ID**
+**SET TARGET #ID**
 - Sets robot target to object ID location and finds path to target
-- Example: `TARGET #5`
+- Example: `SET TARGET #5`
 
 **MOVE**
-- If robot has target set, move to next tile on path
+- If robot has target set, move to next tile on current path
 - If robot has no target set → ERROR(no target set)
+- Note: MOVE executes pathfinding created by SET TARGET command. Use directional commands (UP/DOWN/LEFT/RIGHT) for manual movement
 
 **UP [N]**
 **DOWN [N]**
 **LEFT [N]**
 **RIGHT [N]**
-- Move in direction UP/DOWN/LEFT/RIGHT N tiles
-- If N is omitted, move one tile
-- Example: `UP 3` or `LEFT`
+- Non-blocking commands that calculate and set a new TARGET from robot's current position
+- Calculate N tiles in specified direction from robot's current position
+- If N is omitted, calculate one tile in the direction
+- Example: `UP 3` calculates target 3 tiles above robot's current position
+- Example: `LEFT` calculates target 1 tile to the left of robot
+- Note: These commands execute once and immediately continue to next command (non-blocking)
 
 ### Material Loading/Unloading
 
@@ -81,6 +87,7 @@
 
 **GOTO :LABEL**
 - Jump to line starting with :LABEL
+- This doesn't change target of robot.
 - Example: `GOTO :start`
 
 **IF [NOT] AT TARGET GOTO :LABEL**
@@ -124,9 +131,10 @@
 - Robot becomes idle
 
 **NOP** (No Operation)
-- Empty line, does nothing
-- Used for spacing or placeholder
-- Can also be a completely blank row
+- Empty command or blank line that does nothing
+- Used for spacing, placeholders, or readability
+- Example: blank line or explicit NOP statement
+- Does not affect program flow
 
 **ERROR(TEXT)**
 - Display error message and stop program execution
@@ -158,13 +166,14 @@ While in RUN execution mode, robot can have the following STATE (robot.state):
 ### Execution Model
 - Programs execute one command per game tick
 - Labels are resolved at program runtime
-- Simple movement commands (UP, DOWN, LEFT, RIGHT) block until destination reached or robot cannot move
-- Directional moves (UP/DOWN/LEFT/RIGHT) are relative to current position
-- MOVE command moves robot along route. If robot cannot move, robot stops and enters BLOCKED state
-- Load/unload commands continue until transfer is complete (1 material/second)
-- WAIT commands block for specified duration
+- SET TARGET, UP/DOWN/LEFT/RIGHT, LOAD, UNLOAD commands are non-blocking (execute once, then continue)
+- MOVE command attempts one step along path, then continues to next command
+- If MOVE cannot move, robot enters BLOCKED state
+- LOAD/UNLOAD continue running until transfer complete (check with IF LOADING/UNLOADING)
+- WAIT command blocks for specified duration (pauses program execution)
 - GOTO commands execute immediately
 - After last row, execution continues from first row
+- When robot arrives at target location, state is set to TARGET
 
 ### Label System
 - Labels must start with `:` and contain uppercase letters and numbers
@@ -180,11 +189,9 @@ While in RUN execution mode, robot can have the following STATE (robot.state):
 - No route to target ID → ERROR(no route to ID)
 - Invalid coordinates → ERROR(invalid coordinates)
 - No route to coordinates → ERROR(no route to X Y)
-- Undefined labels: halt program, log error
 - Movement to invalid position: log error, continue
 - Load/unload with no adjacent object: log error, continue
 - Directional move out of bounds: clamp to map edge, continue
-- Object ID not found: log error, continue
 
 ### Robot State During Execution
 - Robot status shows: RUNNING (executing line N)
@@ -200,29 +207,28 @@ While in RUN execution mode, robot can have the following STATE (robot.state):
 program          ::= (line)*
 line             ::= label? (command | comment)?
 label            ::= ':' IDENTIFIER
-command          ::= TARGET_COORD | TARGET_ID | MOVE | DIRECTION | LOAD | UNLOAD | 
-                     GOTO | IF_COMMAND | WAIT | END | NOP | ERROR_CMD | PRINT_CMD
+command          ::= set_target | move | direction | load | unload | 
+                     goto | if_command | wait | end | nop | error | print
 comment          ::= ';' TEXT
 
-TARGET_COORD     ::= 'TARGET' NUMBER NUMBER
-TARGET_ID        ::= 'TARGET' '#' NUMBER
-MOVE             ::= 'MOVE'
-DIRECTION        ::= ('UP' | 'DOWN' | 'LEFT' | 'RIGHT') NUMBER?
-LOAD             ::= 'LOAD' NUMBER?
-UNLOAD           ::= 'UNLOAD' NUMBER?
+set_target       ::= 'SET' 'TARGET' (NUMBER NUMBER | '#' NUMBER)
+move             ::= 'MOVE'
+direction        ::= ('UP' | 'DOWN' | 'LEFT' | 'RIGHT') NUMBER?
+load             ::= 'LOAD' NUMBER?
+unload           ::= 'UNLOAD' NUMBER?
 
-GOTO             ::= 'GOTO' ':' IDENTIFIER
-IF_COMMAND       ::= 'IF' NOT? CONDITION 'GOTO' ':' IDENTIFIER
-CONDITION        ::= 'AT TARGET' | 'HAVE TARGET' | 'LOADING' | 'UNLOADING' | 
+goto             ::= 'GOTO' ':' IDENTIFIER
+if_command       ::= 'IF' NOT? condition 'GOTO' ':' IDENTIFIER
+condition        ::= 'AT TARGET' | 'HAVE TARGET' | 'LOADING' | 'UNLOADING' | 
                      'FULL' | 'EMPTY'
-NOT              ::= 'NOT'
-WAIT             ::= 'WAIT' NUMBER
-END              ::= 'END'
-NOP              ::= ''
-ERROR_CMD        ::= 'ERROR' '(' TEXT ')'
-PRINT_CMD        ::= 'PRINT' '(' TEXT ')'
+wait             ::= 'WAIT' NUMBER
+end              ::= 'END'
+nop              ::= (empty line)
+error            ::= 'ERROR' '(' TEXT ')'
+print            ::= 'PRINT' '(' TEXT ')'
 
 IDENTIFIER       ::= [A-Z0-9]+
 NUMBER           ::= [0-9]+
 TEXT             ::= [^)]*
+NOT              ::= 'NOT'
 ```
