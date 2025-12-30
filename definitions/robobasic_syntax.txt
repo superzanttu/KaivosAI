@@ -1,5 +1,5 @@
 # RoboBASIC - Robot Programming Language
-## KaivosAI Automation Language v2.0
+## KaivosAI Automation Language v1.0
 
 ### About RoboBASIC
 **RoboBASIC** is a simple, label-based programming language designed for autonomous robot control in the KaivosAI mining simulation. The name combines "Robo" (robots) with "BASIC" to emphasize its simple, BASIC-inspired syntax that's easy to learn and use.
@@ -11,6 +11,8 @@
 - No line numbers - uses readable labels for jumps
 - Inspired by BASIC, Assembly, and modern scripting languages
 
+- No Variables
+- No loops
 ---
 
 ## Command Reference
@@ -39,16 +41,13 @@
 
 
 ### Movement commands 
+
 TARGET X Y
 - asettaa robotin kohteeksi koordinaatit X Y ja etsii reitin kohteeseen
-- jos koordinaatit eivät kelpaa --> ERROR(invalid coordinates)
-- jos koordinaatteihin ei löydy reittiä --> ERROR(no route to X Y)
 - esim: TARGET 13 1
 
 TARGET #ID
 - asettaa robotin kohteeksi objectin ID sijainnin ja etsii reitin kohteeseen
-- jos id:tä ei löydy --> ERROR(invalid id)
-- jos kohteeseen ei löydy reittiä --> ERROR(no route to #ID)
 - esim: TARGET #5
 
 MOVE
@@ -82,10 +81,13 @@ UNLOAD [N]
 
 GOTO :LABEL
 - jatka suoritusta riviltä, joka alkaa :LABEL
-- jos riviä ei löydy --> ERROR (invalid label)
 - esim: GOTO :kala
 
-IF [NOT] TARGET GOTO :LABEL
+IF [NOT] AT TARGET GOTO :LABEL
+- jos robottin sijainti on sama kuin asetettu TARGET.
+
+
+IF [NOT] HAVE TARGET GOTO :LABEL
 - jos robotilla on kohde asetettuna, jatka suoritysa :LABEL riviltä
 
 IF [NOT] LOADING GOTO :LABEL
@@ -121,33 +123,39 @@ IF [NOT] EMPTY GOTO :LABEL
 - Used for spacing or placeholder
 - Can also be completely blank row
 
+ERROR(ERROR TEXT)
+- robot shows error message and stops program execution execution
+- Esim: ERROR(Robotti on viallinen)
 
-
-
-
-
+PRINT(TEXT)
+- tulostaa Events-logiin textin.
+- Esim: PRINT(Heippa!)
 
 
 ## Implementation Notes
 
 ### Robot state machine
-Robot can have following execution modes:
+Robot can have following execution modes (robot.execution_mode):
 - RUN : robot program is executed. When entering RUN execution mode robot's state is set to IDLE.
 - STOP : robot program is not executed
 - ERROR : robot have stopped for error
 
-While in RUN execution mode, robot can have followin states:
+While in RUN execution mode, robot can have following STATE (robot.state):
 - IDLE : not target set, not unloading/loadding
 - LOADING/UNLOADING : transferring material
 - MOVING : robot have target set
-- State can change:  MOVING <--> IDLE <--> LOADING/MOVING
+- BLOCKED : robot can't move on route
+- TARGET : robot has arrived to target location
+
+
 
 ### Execution Model
 - Programs execute one command per game tick
 - Labels are resolved at program runtime
-- Simple movement commands (UP, DOWN, LEFT, RIGHT) block until destination reached or robot can't move on route
+- Simple movement commands (UP, DOWN, LEFT, RIGHT) block until destination reached or robot can't move
 - Directional moves (UP/DOWN/LEFT/RIGHT) are relative to current position
-- Load/unload commands start until transfer complete action (1 material/second)
+- MOVE command moves robot on route. If robot can't move robot stops and enters BLOCKED state.
+- Load/unload commands contiues until transfer complete action (1 material/second)
 - Wait commands block for specified duration
 - Jump commands execute immediately
 - After last row code execution starts from first row
@@ -155,103 +163,33 @@ While in RUN execution mode, robot can have followin states:
 ### Label System
 - Labels must start with `:` and contain uppercase letters/numbers
 - Label names are case-sensitive (`:LOOP` ≠ `:loop`)
-- Labels can be on same line as command: `:START GOTO 5`
+- Labels can' be on same line as command: `:START GOTO 5`
 - Undefined labels cause program error (halt execution)
 - No forward/backward restriction - can jump anywhere
 
 
 ### Error Handling
+- jos labelia ei löydy --> ERROR(invalid label: LABEL_NAME)
+- jos id:tä ei löydy --> ERROR(invalid id: ID) 
+- jos kohteeseen ei löydy reittiä --> ERROR(no route to ID)
+- jos koordinaatit eivät kelpaa --> ERROR(invalid coordinates)
+- jos koordinaatteihin ei löydy reittiä --> ERROR(no route to X Y)
 - Undefined labels: halt program, log error
 - Movement to invalid position: log error, continue
 - Load/unload with no adjacent object: log error, continue
 - Directional move out of bounds: clamp to map edge, continue
-- Load/unload with no adjacent object: log error, continue
 - Object ID not found: log error, continue
 
 ### Robot State During Execution
-- Robot status shows: RUNNING (executing line N)
+- Robot status shows: RUNNING(executing line N)
 - Can be interrupted with manual commands
-- Program state saved in robot.commands_text
-- Execution pointer saved in robot._program_counter (not yet implemented)
+- Program state saved in robot.program_text
+- Execution pointer saved in robot.program_counter
 
-### Future Enhancements (Not Yet Implemented)
-- Variables: SET X 5, IF X > 3
-- Math operations: ADD, SUB
-- Subroutines: CALL, RETURN
-- Event triggers: ON FULL, ON ARRIVE
-- Labels instead of line numbers: :LOOP, GOTO LOOP
 
 ---
 
 
 
 ## Syntax Grammar (EBNF-style)
-
-```
-program     ::= line*
-line        ::= [comment] | [label] command [comment] | label [comment] | NOP
-comment     ::= ";" TEXT
-label       ::= ":" IDENTIFIER
-command     ::= movement | transfer | control | utility | messaging
-movement    ::= "GOTO" target [distance] | direction NUMBER
-direction   ::= ("UP" | "U" | "DOWN" | "D" | "LEFT" | "L" | "RIGHT" | "R")
-target      ::= coords | objid | label
-coords      ::= NUMBER NUMBER
-objid       ::= NUMBER
-distance    ::= ("D" | "DISTANCE" | "DIST") NUMBER
-transfer    ::= ("LOAD" | "UNLOAD") [NUMBER]
-control     ::= conditional | jump | stop
-conditional ::= "IF" ["NOT"] condition label
-condition   ::= ("FULL" | "EMPTY") 
-             | ("NEAR" [count] proximity)
-             | (direction NUMBER scantype)
-             | ("RANGE" NUMBER scantype)
-             | ("MSG" objtype MESSAGE)
-direction   ::= ("U" | "D" | "L" | "R")
-scantype    ::= ("ANY" | "ROBOT" | "MINE" | "STORE" | "BASE" | "SRC" | "DST")
-count       ::= ("0" | "1" | "MANY")
-proximity   ::= ("SRC" | "DST" | "MINE" | "STORE" | "BASE" | "ROBOT")
-objtype     ::= ("ROBOT" | "MINE" | "STORE" | "BASE")
-jump        ::= "GOTO" label
-stop        ::= "END" | "STOP"
-messaging   ::= "SEND" broadcast MESSAGE | "CLEAR"
-broadcast   ::= ("ROBOTS" | "MINES" | "STORES" | "BASES")
-utility     ::= "WAIT" NUMBER
-IDENTIFIER  ::= [A-Z0-9]+ (max 10 chars)
-MESSAGE     ::= [A-Z]+ (max 8 chars)
-NUMBER      ::= [0-9]+
-NOP         ::= ""
-```
-
----
-
-## Best Practices
-
-1. **Use Descriptive Labels**: `:MINE`, `:STORE`, `:WAIT` instead of `:L1`, `:L2`
-2. **Keep Labels Short**: Longer commands need shorter labels to fit 15 chars
-3. **Proximity Over IDs**: Use `IF NEAR MINE` instead of hard-coding positions
-4. **Message Naming**: Use clear, descriptive messages like `READY`, `FULL`, `STOP`
-5. **Broadcast Wisely**: Remember SEND broadcasts to ALL objects of type
-6. **Clear Messages**: Use `CLEAR` after processing messages to avoid confusion
-7. **Directional Movement**: Use U/D/L/R for relative movement, GOTO for absolute
-8. **Error Handling**: Always have `END` or `STOP` as fallback exit point
-9. **Dynamic Behavior**: Combine proximity checks with directional movement for adaptive robots
-10. **Testing**: Test with single robot before coordinating multiple robots
-
----
-
-## Testing Recommendations
-
-1. **Basic Loop Test**: Single mine-to-storage loop (Example 1)
-2. **Proximity Test**: Dynamic source/destination finding (Example 2, 3, 7)
-3. **Directional Movement Test**: Patrol patterns with U/D/L/R (Example 4)
-4. **Label Jump Test**: Verify all labels resolve correctly
-5. **Broadcast Test**: Multiple robots receiving same message (Example 5)
-6. **Message Expiry Test**: Verify messages expire after 1 game hour
-7. **Type Filter Test**: Verify IF MSG [TYPE] filters correctly (Example 5)
-8. **Emergency Stop Test**: Base broadcasting STOP to all (Example 6)
-9. **Proximity Types Test**: Test IF NEAR MINE/STORE/BASE/ROBOT
-10. **Dynamic Pathfinding**: Robot finding sources without fixed coordinates
-
----
 

@@ -232,6 +232,10 @@ class Robot(BaseMovingObject):
     pos: Position = (0, 0)
     material_stored: int = 0
     material_capacity: int = 10
+    program_text: str = ""  # Placeholder for RoboBASIC code
+    program_counter: int = 0  # Current line of program execution
+    execution_mode: str = "STOP"  # Execution mode: "STOP", "RUN", "ERROR"
+    state: str = "IDLE"  # Current robot state: "IDLE", "MOVING", "LOADING", "UNLOADING", etc.
 
     def on_tick(self, tick_count: int, delta_seconds: float, game_map, dbconn) -> None:
         """Robotin tikkipäivitys.
