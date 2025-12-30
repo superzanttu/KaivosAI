@@ -52,8 +52,12 @@
 - Example: `SET TARGET #5`
 
 **MOVE**
-- If robot has target set, move to next tile on current path
-- If robot has no target set → ERROR(no target set)
+- Attempts to move robot one step along current path toward target
+- If robot has target set and path exists: move one step, remain in MOVING state, continue program
+- If robot is already at target: remain in TARGET state (no movement), continue program
+- If robot has no target set: ERROR(no target set), program halts
+- If target is unreachable (no valid path): robot enters BLOCKED state, continue program
+- Returns same movement each tick until target reached or path blocked
 - Note: MOVE executes pathfinding created by SET TARGET command. Use directional commands (UP/DOWN/LEFT/RIGHT) for manual movement
 
 **UP [N]**
@@ -75,8 +79,9 @@
 - Without N: load until robot is full OR source (adjacent mine/storage/base) is empty
 - Always loads from adjacent tile (directly next to robot)
 - Never loads from other robots or empty locations
+- Transfer rate: exactly 1 material unit per game tick (external to command)
 - Continues until condition met (use IF LOADING to check status)
-- ERROR if no adjacent object with material
+- If no adjacent object with material: operation fails silently, robot not in LOADING state
 - Example: `LOAD` or `LOAD 4`
 
 **UNLOAD [N]**
@@ -85,8 +90,9 @@
 - Without N: unload until robot is empty OR destination (adjacent storage/base) is full
 - Always unloads to adjacent tile (directly next to robot)
 - Never unloads to other robots or mines
+- Transfer rate: exactly 1 material unit per game tick (external to command)
 - Continues until condition met (use IF UNLOADING to check status)
-- ERROR if no adjacent storage/base location
+- If no adjacent storage/base location: operation fails silently, robot not in UNLOADING state
 - Example: `UNLOAD` or `UNLOAD 4`
 
 ### Control Flow Commands
@@ -131,8 +137,9 @@
 **WAIT N**
 - Pause program execution for N game ticks (N must be positive integer)
 - Robot state remains unchanged while waiting
-- After N ticks, execution continues to next command
-- Example: `WAIT 10` pauses for 10 game ticks
+- Execution costs 1 tick to start WAIT + N ticks waiting = N+1 ticks total
+- After N waiting ticks, execution continues to next command on tick N+1
+- Example: `WAIT 10` starts on current tick and continues on tick 10 ticks later
 
 **END**
 - Stop program execution immediately
@@ -140,9 +147,11 @@
 
 **NOP** (No Operation)
 - Empty command or blank line that does nothing
+- Blank line (no label, no command) is treated as NOP
+- Explicit `NOP` keyword is NOT supported (not in command set)
 - Used for spacing, placeholders, or readability
-- Example: blank line or explicit NOP statement
 - Does not affect program flow
+- Consumes no game tick (free operation, execution pointer increments but no tick used)
 
 **ERROR(TEXT)**
 - Display error message and stop program execution
@@ -184,12 +193,23 @@ While in RUN execution mode, robot can have the following STATE (robot.state):
   - If target reached, enters TARGET state
   - If path blocked, enters BLOCKED state and continues to next command
   - Robot does not move if already in TARGET state
-- WAIT command blocks execution for N ticks (robot state unchanged)
+  - Each tick: same one-step forward (no progress check inside MOVE)
+- WAIT command blocks execution for N ticks (costs 1 tick + N ticks = N+1 total)
 - GOTO commands execute immediately (no time cost)
 - IF commands evaluate condition immediately and jump or continue (no time cost)
-- After last command in program, execution loops to first command
-- Program continues executing unless END command or ERROR occurs
-- IF statement without jump continues to next command if condition is false
+- Empty lines (NOP) consume no tick and execute immediately
+- Program execution flow: after last command in program, loop returns to first command
+- Program continues executing in loop unless END command or ERROR occurs
+- IF statement without matching jump condition continues to next command
+
+### Condition Evaluation
+Each IF condition evaluates to true/false at execution time:
+- **AT TARGET**: Robot position == target position (target must be set)
+- **HAVE TARGET**: Robot target is set (target position is not None)
+- **LOADING**: Robot is currently in LOADING state (transfer in progress)
+- **UNLOADING**: Robot is currently in UNLOADING state (transfer in progress)
+- **FULL**: Robot inventory amount == robot capacity
+- **EMPTY**: Robot inventory amount == 0
 
 ### Label System
 - Labels must start with `:` and contain uppercase letters and numbers
@@ -225,6 +245,8 @@ While in RUN execution mode, robot can have the following STATE (robot.state):
 - Comments extend from `;` to end of line
 - Label validation: must match pattern `[A-Z0-9]+`, must be unique in program
 - Integer validation: all numeric parameters must be valid integers ≥ 0
+- Keyword and command matching is case-sensitive (e.g., `MOVE` ≠ `move`)
+- Empty lines are valid and treated as NOP (no operation)
 
 ### Execution Requirements
 - Single command per game tick execution with loop back to start
@@ -237,27 +259,26 @@ While in RUN execution mode, robot can have the following STATE (robot.state):
 ### State Management
 - Track robot position (X, Y)
 - Track robot target position (X, Y) or None
-- Track robot inventory (current amount, capacity)
+- Track robot inventory (current amount, max capacity - defined externally)
 - Track robot state (IDLE, MOVING, BLOCKED, LOADING, UNLOADING, TARGET)
-- Track program counter and current line
-- Track if LOAD/UNLOAD operation is active and current progress
+- Track program counter (line number, starts at 0)
+- Track if LOAD/UNLOAD operation is active (boolean) and current progress (units transferred)
+- Pathfinding system (external to interpreter): given target position, return next step on path
 
 ### Command Execution Order
 1. Parse program into tokens/instructions (pre-execution)
 2. Validate all labels exist and are unique
 3. Each game tick:
    - Fetch instruction at program counter
-   - Parse and execute command
-   - If command is GOTO or IF (conditional jump):
-     - Evaluate condition (IF only)
-     - Jump to label or continue if condition false
-     - No tick consumed (jump is free)
-   - If command is other (SET TARGET, MOVE, LOAD, UNLOAD, WAIT, etc.):
-     - Execute command (1 tick consumed)
-     - Increment program counter
-   - Update LOAD/UNLOAD progress if active
-   - If program counter >= program length, reset to 0
-   - Return to game loop
+   - Parse and execute command:
+     - If GOTO: jump to specified label immediately (0 ticks)
+     - If IF [NOT] condition: evaluate condition, jump to label if true (0 ticks), continue if false
+     - If WAIT: start waiting timer, increment program counter, return (counts as 1 tick start)
+     - If other commands (SET TARGET, MOVE, LOAD, UNLOAD, PRINT, ERROR): execute fully (1 tick consumed), increment program counter
+   - Check if WAIT timer is active and decrement if so
+   - If LOAD/UNLOAD in progress: transfer 1 material unit this tick, check if transfer complete
+   - If program counter >= program length: reset to 0 (loop to start)
+   - Return to game loop for next tick
 
 ---
 
@@ -265,25 +286,25 @@ While in RUN execution mode, robot can have the following STATE (robot.state):
 
 ```
 program          ::= (line)*
-line             ::= label? (command | comment)?
+line             ::= (label? command) | comment | empty_line
 label            ::= ':' IDENTIFIER
 command          ::= set_target | move | direction | load | unload | 
-                     goto | if_command | wait | end | nop | error | print
+                     goto | if_command | wait | end | error | print
 comment          ::= ';' TEXT
+empty_line       ::= ''  (empty line = NOP)
 
 set_target       ::= 'SET' 'TARGET' (NUMBER NUMBER | '#' NUMBER)
 move             ::= 'MOVE'
-direction        ::= ('UP' | 'DOWN' | 'LEFT' | 'RIGHT') NUMBER?
-load             ::= 'LOAD' NUMBER?
-unload           ::= 'UNLOAD' NUMBER?
+direction        ::= ('UP' | 'DOWN' | 'LEFT' | 'RIGHT') (NUMBER)?
+load             ::= 'LOAD' (NUMBER)?
+unload           ::= 'UNLOAD' (NUMBER)?
 
 goto             ::= 'GOTO' ':' IDENTIFIER
-if_command       ::= 'IF' NOT? condition 'GOTO' ':' IDENTIFIER
+if_command       ::= 'IF' (NOT)? condition 'GOTO' ':' IDENTIFIER
 condition        ::= 'AT TARGET' | 'HAVE TARGET' | 'LOADING' | 'UNLOADING' | 
                      'FULL' | 'EMPTY'
 wait             ::= 'WAIT' NUMBER
 end              ::= 'END'
-nop              ::= (empty line)
 error            ::= 'ERROR' '(' TEXT ')'
 print            ::= 'PRINT' '(' TEXT ')'
 
