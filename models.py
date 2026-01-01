@@ -226,25 +226,61 @@ class Base(BaseBuildingObject):
 
 @dataclass
 class Robot(BaseMovingObject):
+    """Robotti - liikkuva yksikkö joka suorittaa RoboBASIC-ohjelmaa.
+    
+    Jokaisella robotilla on oma RoboBASIC VM-instanssi (self.vm),
+    joka suorittaa robotin omaa ohjelmaa (program_text) täysin itsenäisesti
+    muista roboteista.
+    
+    Attributes:
+        name: Robotin nimi
+        symbol: Karttasymboli ('R')
+        pos: Sijainti kartalla (x, y)
+        material_stored: Varastoidun materiaalin määrä
+        material_capacity: Maksimikapasiteetti
+        program_text: RoboBASIC-ohjelmakoodi
+        program_counter: Ohjelman suorituskohta (rivinumero)
+        execution_mode: Suoritustila ("STOP", "RUN", "ERROR")
+        state: Robotin tila ("IDLE", "MOVING", "LOADING", jne.)
+        target: Liikkumiskohde (x, y) tai None
+        vm: RoboBASIC-virtuaalikone (luodaan __post_init__:ssä)
+    """
  
     name: str = "Robot"
     symbol: str = "R"
     pos: Position = (0, 0)
     material_stored: int = 0
     material_capacity: int = 10
-    program_text: str = ""  # Placeholder for RoboBASIC code
-    program_counter: int = 0  # Current line of program execution
-    execution_mode: str = "STOP"  # Execution mode: "STOP", "RUN", "ERROR"
-    state: str = "IDLE"  # Current robot state: "IDLE", "MOVING", "LOADING", "UNLOADING", etc.
-    target: Position = None  # Target position for movement
+    program_text: str = ""  # RoboBASIC-koodi
+    program_counter: int = 0  # Ohjelman suorituskohta
+    execution_mode: str = "STOP"  # Suoritustila: "STOP", "RUN", "ERROR"
+    state: str = "IDLE"  # Robotin tila: "IDLE", "MOVING", "LOADING", "UNLOADING", jne.
+    target: Position = None  # Liikkumiskohde
+    
+    # VM-instanssi ei ole dataclass-kenttä, alustetaan __post_init__:ssä
+    def __post_init__(self):
+        """Alusta robotin oma RoboBASIC VM-instanssi.
+        
+        Kutsutaan automaattisesti dataclass-konstruktorin jälkeen.
+        Luo robotille oman VM:n joka suorittaa vain tämän robotin ohjelmaa.
+        """
+        from robobasic import RoboBASICVM
+        self.vm = RoboBASICVM(self)
 
     def on_tick(self, tick_count: int, delta_seconds: float, game_map, dbconn) -> None:
-        """Robotin tikkipäivitys.
+        """Robotin tikkipäivitys - suorittaa RoboBASIC-ohjelmaa.
 
-        Paikka liikkumiselle, komentosuoritukselle ja siirroille.
-        Tällä hetkellä ei tee mitään.
+        Kutsuu robotin omaa VM:ää suorittamaan yhden tikin verran ohjelmaa.
+        
+        Args:
+            tick_count: Pelitikkien kokonaismäärä
+            delta_seconds: Aika edellisestä tikistä
+            game_map: Karttaobjekti
+            dbconn: Tietokantayhteys
         """
-        return None
+        # Suorita yksi tikki robotin omalla VM:llä
+        if hasattr(self, 'vm') and self.vm is not None:
+            self.vm.tick(game_map)
 
     
     # commands_text: list = None  # 10 lines, max 20 chars each - RoboBASIC code
