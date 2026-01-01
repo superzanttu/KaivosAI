@@ -28,7 +28,11 @@ from exceptions import GameError
 # =============================================================================
 
 class RobotState(Enum):
-    """Robotin tilat RoboBASIC-suorituksen aikana."""
+    """Robotin tila-kone RoboBASIC-suorituksen aikana.
+    
+    Nämä tilat hallitsevat mitä robotti tekee ja miten se reagoi käskyihin.
+    Tila päivittyy automaattisesti käskyistä (SET TARGET, MOVE, LOAD, jne.)
+    """
     IDLE = "IDLE"           # Ei kohdetta, ei lastaus/purkua
     MOVING = "MOVING"       # Kohde asetettu, reitti olemassa
     BLOCKED = "BLOCKED"     # Kohde asetettu, ei voi liikkua
@@ -38,14 +42,24 @@ class RobotState(Enum):
 
 
 class ExecutionMode(Enum):
-    """Robotin suoritustila."""
+    """Ohjelman globaali suoritustila.
+    
+    RUN: Ohjelma suoritetaan normaaleesti tick()issa
+    STOP: Ohjelma ei suoritu, voidaan käynnistää run():lla
+    ERROR: Ohjelmassa oli virhe, vaatii reset():ia
+    """
     RUN = "RUN"     # Ohjelma suoritetaan
     STOP = "STOP"   # Ohjelma pysäytetty
     ERROR = "ERROR" # Virhetilanne
 
 
 class CommandType(Enum):
-    """RoboBASIC-käskyjen tyypit."""
+    """Jäsennetyt RoboBASIC-käskyt.
+    
+    Jokainen käskyrivi muutetaan yhdeksi näistä tyypeistä.
+    Parser tunnistaa käskyt regex-patterneja käyttämällä.
+    VM suorittaa käskyt execute_instruction():ssa.
+    """
     NOP = "NOP"                 # Tyhjä rivi / ei operaatiota
     LABEL = "LABEL"             # Label-määrittely
     SET_TARGET_XY = "SET_TARGET_XY"     # SET TARGET X Y
@@ -66,7 +80,11 @@ class CommandType(Enum):
 
 
 class Condition(Enum):
-    """IF-käskyn ehdot."""
+    """IF-käskyn ehdolliset testit.
+    
+    Nämä testit evaluoidaan runtime-aikana ja määrittelevät
+    hyppäävät robotit seuraavaan labeliin vai jatkavat lineaarisesti.
+    """
     AT_TARGET = "AT TARGET"
     HAVE_TARGET = "HAVE TARGET"
     LOADING = "LOADING"

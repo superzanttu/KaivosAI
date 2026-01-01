@@ -81,31 +81,31 @@ class GameLoop:
             return
 
     def _update_robots(self):
-        """Päivitä robottien sijainnit ja tilat."""
-        # TODO: Toteuta robotin liikkumislogiikka
-        # - Käsittele reittipisteet
-        # - Päivitä sijainnit
-        # - Käsittele törmäykset
+        """Päivitä robottien sijainnit ja tilat.
+        
+        Huom: Robotin liikkuminen ja ohjelmasuoritus käsitellään
+        Robot.on_tick():ssä, joka kutsuu vm.tick() suorittamaan RoboBASIC-käskyjä.
+        """
         pass
 
     def _update_mining(self):
-        """Päivitä kaivostoiminnot."""
-        # TODO: Toteuta kaivoslogiikka
-        # - Louhinta resursseja
-        # - Päivitä kaivosten tilat
-        # - Käsittele täysi varasto
+        """Päivitä kaivostoiminnot.
+        
+        Huom: Kaivosten materiaaliintuotanto käsitellään Mine.on_tick():ssä,
+        joka nostaa material_stored-arvoa määritettävällä taajuudella.
+        """
         pass
 
     def _process_pending_commands(self):
         """Käsittele jonossa olevat käyttäjän komennot."""
-        # TODO: Hae komennot jonosta ja suorita ne
         pass
 
     def _check_resource_transfers(self):
-        """Käsittele resurssien siirrot entiteettien välillä."""
-        # TODO: Toteuta siirtologiikka
-        # - Robotti varastoon talletukset
-        # - Tukikohta robottiin tankkaus
+        """Käsittele resurssien siirrot entiteettien välillä.
+        
+        Huom: Robotti LOAD/UNLOAD-siirrot käsitellään RoboBASICVM:ssä
+        _process_transfers()-metodissa, joka siirtää materiaalin tick-pohjaisesti.
+        """
         pass
 
     def pause(self):
