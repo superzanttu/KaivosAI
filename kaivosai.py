@@ -30,6 +30,9 @@ OBJECT_COLUMNS = (
     "Y",
     "Amount",
     "Capacity",
+    "ExecMode",
+    "State",
+    "PC",
 )
 
 COMMANDS = [
@@ -437,7 +440,7 @@ class KaivosAIApp(App):
             objects = []
 
         if not objects:
-            self.objectsPanel.add_row("-", "-", "-", "-", "-", "-", "-", key="empty")
+            self.objectsPanel.add_row("-", "-", "-", "-", "-", "-", "-", "-", "-", "-", key="empty")
             return
 
         type_styles = {
@@ -459,6 +462,10 @@ class KaivosAIApp(App):
                 except Exception:
                     pass
 
+            exec_mode = obj.get("execution_mode", "-") or "-"
+            robot_state = obj.get("state", "-") or "-"
+            program_counter = obj.get("program_counter", "-") or "-"
+
             row = [
                 Text(str(obj.get("id", "")) or "-", style="dim", justify="right"),
                 Text(obj_type.capitalize(), style=type_styles.get(obj_type, "white")),
@@ -467,6 +474,9 @@ class KaivosAIApp(App):
                 Text(str(y if y is not None else "-"), style="dim"),
                 Text(str(obj.get("material_stored", "-")), style="italic #03AC13"),
                 Text(str(obj.get("material_capacity", "-")), style="italic #03AC13"),
+                Text(str(exec_mode), style="italic yellow"),
+                Text(str(robot_state), style="italic yellow"),
+                Text(str(program_counter), style="italic yellow"),
             ]
             self.objectsPanel.add_row(*row, key=row_key)
 
@@ -622,16 +632,49 @@ class KaivosAIApp(App):
         # Suorita komento
         if button_id == "btn_robot_run":
             if hasattr(robot, 'vm') and robot.vm:
-                robot.vm.run()
-                database.log_event(
-                    self.dbconn, "robot_command", f"Robotti {robot_id}: RUN"
-                )
+                # Lataa ohjelma jos sitä ei ole ladattu vielä
+                if robot.vm.state.program is None:
+                    try:
+                        load_errors = robot.vm.load_program(robot.program_text or "")
+                        if load_errors:
+                            database.log_event(
+                                self.dbconn,
+                                "robot_command_error",
+                                f"Robotti {robot_id} ohjelman latausvirhe: {'; '.join(load_errors)}"
+                            )
+                            return
+                    except Exception as e:
+                        database.log_event(
+                            self.dbconn,
+                            "robot_command_error",
+                            f"Robotti {robot_id} ohjelman lataus epäonnistui: {str(e)}"
+                        )
+                        return
+
+                started = robot.vm.run()
+                if started:
+                    database.log_event(
+                        self.dbconn, "robot_command", f"Robotti {robot_id}: RUN"
+                    )
+                else:
+                    database.log_event(
+                        self.dbconn,
+                        "robot_command_error",
+                        f"Robotti {robot_id} ei käynnistynyt (RUN palautti False)"
+                    )
         elif button_id == "btn_robot_stop":
             if hasattr(robot, 'vm') and robot.vm:
                 robot.vm.stop()
                 database.log_event(
                     self.dbconn, "robot_command", f"Robotti {robot_id}: STOP"
                 )
+
+        # Päivitä objektipaneeli jotta ExecutionMode/State/PC näkyvät
+        self._objects_dirty = True
+        try:
+            self.refresh_objects_panel()
+        except Exception:
+            pass
 
     def handle_settings_button(self, button_name: str) -> None:
         """Käsittele asetuspaneelin nappuloiden painallukset."""

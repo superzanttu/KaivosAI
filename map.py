@@ -309,6 +309,9 @@ class Map:
                     "y": y,
                     "material_stored": getattr(obj, "material_stored", None),
                     "material_capacity": getattr(obj, "material_capacity", None),
+                    "execution_mode": getattr(obj, "execution_mode", None) if obj_type == "robot" else None,
+                    "state": getattr(obj, "state", None) if obj_type == "robot" else None,
+                    "program_counter": getattr(obj, "program_counter", None) if obj_type == "robot" else None,
                 }
             )
 

@@ -635,7 +635,7 @@ class RoboBASICParser:
             condition = condition_map.get(condition_str)
             
             return Instruction(
-                cmd_type=CommandType.IF_GOTO,
+                cmd_type=CommandType.IF,
                 args=[negated, condition, label],
                 line_num=line_num,
                 raw_text=raw_text
@@ -647,7 +647,7 @@ class RoboBASICParser:
             ticks = int(match.group(1))
             if ticks <= 0:
                 return Instruction(
-                    cmd_type=CommandType.ERROR_CMD,
+                    cmd_type=CommandType.ERROR,
                     args=[f"invalid wait time: {ticks}"],
                     line_num=line_num,
                     raw_text=raw_text
@@ -710,12 +710,7 @@ class RoboBASICParser:
                     program.errors.append(
                         f"Rivi {instr.line_num + 1}: Tuntematon label '{label}'"
                     )
-            elif instr.cmd_type == CommandType.IF_GOTO:
-                label = instr.args[2]
-                if label not in program.labels:
-                    program.errors.append(
-                        f"Rivi {instr.line_num + 1}: Tuntematon label '{label}'"
-                    )
+
 
 
 # =============================================================================
