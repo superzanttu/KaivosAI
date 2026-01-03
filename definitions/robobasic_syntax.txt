@@ -42,14 +42,14 @@
 
 ### Movement Commands
 
-**SET TARGET X Y**
+**SET TARGET XY**
 - Sets robot target to coordinates X Y and finds path to target
 - Target is stored with robot (robot.target)
-- Example: `SET TARGET 13 1`
+- Example: `SET TARGET XY 13 1`
 
-**SET TARGET #ID**
+**SET TARGET ID**
 - Sets robot target to object ID location and finds path to target
-- Example: `SET TARGET #5`
+- Example: `SET TARGET ID 5`
 
 **MOVE**
 - Attempts to move robot one step along current path toward target
@@ -153,13 +153,13 @@
 - Does not affect program flow
 - Consumes no game tick (free operation, execution pointer increments but no tick used)
 
-**ERROR(TEXT)**
+**ERROR**
 - Display error message and stop program execution
-- Example: `ERROR(Robot malfunction detected)`
+- Example: `ERROR Robot malfunction detected`
 
-**PRINT(TEXT)**
+**PRINT**
 - Print text to Events log
-- Example: `PRINT(Loading complete)`
+- Example: `PRINT Loading complete`
 
 
 ## Implementation Notes

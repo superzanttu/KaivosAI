@@ -5,11 +5,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>API-viitteet &#8212; KaivosAI 0.7.1 documentation</title>
+    <title>API-viitteet &#8212; KaivosAI 0.7.3 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
     <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
-    <script src="_static/documentation_options.js?v=4b300baf"></script>
+    <script src="_static/documentation_options.js?v=d8b005dc"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="_static/translations.js?v=aa74d7ce"></script>
@@ -40,21 +40,330 @@
 <p>RoboBASIC 1.0 - Robot Programming Language Interpreter.</p>
 <p>Virtuaalikone robottien ohjelmointiin KaivosAI-kaivossimulaatiossa.
 BASIC-inspiroitu syntaksi yksinkertaisella label-pohjaisella hyppylogiikalla.</p>
-<dl class="simple">
-<dt>Pääluokat:</dt><dd><ul class="simple">
-<li><p>RoboBASICParser: Jäsentää ohjelmakoodin käskyiksi</p></li>
-<li><p>RoboBASICVM: Suorittaa jäsennetyn ohjelman</p></li>
-<li><p>RoboBASICError: Ohjelman virhetilanteet</p></li>
+<section id="miten-robobasic-vm-toimii">
+<h3>Miten RoboBASIC VM toimii<a class="headerlink" href="#miten-robobasic-vm-toimii" title="Link to this heading">¶</a></h3>
+<section id="arkkitehtuuri">
+<h4>Arkkitehtuuri<a class="headerlink" href="#arkkitehtuuri" title="Link to this heading">¶</a></h4>
+<p>RoboBASIC VM on per-robotti virtuaalikone, jossa jokainen robotti saa oman
+VM-instanssinsa täydellä eristyksellä muista roboteista. VM:n toiminta perustuu
+kolmivaiheiseen malliin: jäsennys, lataus ja suoritus.</p>
+<ol class="arabic simple">
+<li><p><strong>Jäsennysvaihe (Parse)</strong>
+- RoboBASICParser lukee lähdekoodin rivi riviltä
+- Tunnistaa käskyt regex-patterneilla (16 käskytyyppiä)
+- Rakentaa Instruction-olioiden listan
+- Tallentaa labelit hyppytaulukkoon (label -&gt; rivinumero)
+- Kerää syntaksivirheet errors-listaan</p></li>
+<li><p><strong>Latasvaihe (Load)</strong>
+- VM vastaanottaa jäsennetyn ohjelman
+- Alustaa VMState-tilan (ohjelmalaskuri, laskurit, virheet)
+- Asettaa robotin execution_mode = STOP
+- Virheellinen ohjelma -&gt; execution_mode = ERROR</p></li>
+<li><p><strong>Suoritusvaihe (Execute)</strong>
+- Kutsutaan vm.run() käynnistämään suoritus
+- Joka pelitikin kohdalla kutsutaan vm.tick(game_map)
+- VM suorittaa käskyjä kunnes yksi tikki kulutettu
+- Taustaprosessit (LOAD/UNLOAD) etenevät 1 yksikkö per tikki</p></li>
+</ol>
+</section>
+<section id="suoritusmalli">
+<h4>Suoritusmalli<a class="headerlink" href="#suoritusmalli" title="Link to this heading">¶</a></h4>
+<p><strong>Tikin käsittely (tick-sykli):</strong></p>
+<ol class="arabic simple">
+<li><p>Tarkista suoritustila (RUN/STOP/ERROR)</p></li>
+<li><p>Käsittele taustaprosessit (_process_transfers)
+- LOADING: Siirrä 1 materiaalia lähteestä -&gt; robotti
+- UNLOADING: Siirrä 1 materiaalia robotti -&gt; kohde</p></li>
+<li><p>Tarkista WAIT-laskuri (jos &gt; 0, vähennä ja lopeta)</p></li>
+<li><p>Suorita käskyjä kunnes tikki kulutettu:
+- Nollatikin käskyt: GOTO, IF (hyppy), LABEL, NOP
+- Yhden tikin käskyt: MOVE, LOAD, UNLOAD, SET TARGET, WAIT, jne.
+- Lopetuskäskyt: END (-&gt; STOP), ERROR (-&gt; ERROR)</p></li>
+<li><p>Silmukkaa ohjelman alkuun jos PC ylittää ohjelman pituuden</p></li>
+</ol>
+<p><strong>Käskyjen suoritustavat:</strong></p>
+<ul class="simple">
+<li><p><strong>Välittömät käskyt</strong>: Suoritetaan heti, ei tikki (GOTO, IF, LABEL, NOP)</p></li>
+<li><p><strong>Tikin käskyt</strong>: Kuluttavat yhden tikin (MOVE, LOAD, UNLOAD, WAIT, jne.)</p></li>
+<li><p><strong>Taustakäskyt</strong>: Aloittavat prosessin joka etenee tickeissä (LOAD, UNLOAD)</p></li>
 </ul>
+<p><strong>Robotin tilakone (RobotState):</strong></p>
+<ul class="simple">
+<li><p>IDLE: Ei toimintaa, odottaa käskyjä</p></li>
+<li><p>MOVING: Liikkuu kohti asetettua kohdetta</p></li>
+<li><p>BLOCKED: Kohde asetettu mutta ei reittiä</p></li>
+<li><p>TARGET: Kohteessa, valmis seuraavaan käskyyn</p></li>
+<li><p>LOADING: Lastaa materiaalia taustalla</p></li>
+<li><p>UNLOADING: Purkaa materiaalia taustalla</p></li>
+</ul>
+</section>
+</section>
+<section id="luokat-ja-tietorakenteet">
+<h3>Luokat ja tietorakenteet<a class="headerlink" href="#luokat-ja-tietorakenteet" title="Link to this heading">¶</a></h3>
+<section id="enumit-tila-ja-tyypitiedot">
+<h4>Enumit (tila- ja tyypitiedot)<a class="headerlink" href="#enumit-tila-ja-tyypitiedot" title="Link to this heading">¶</a></h4>
+<dl>
+<dt>RobotState</dt><dd><p>Robotin tila RoboBASIC-suorituksen aikana.
+Arvot: IDLE, MOVING, BLOCKED, TARGET, LOADING, UNLOADING
+Käyttö: Määrittää mitä robotti tekee ja miten se reagoi käskyihin</p>
 </dd>
-<dt>Suoritusmallin yhteenveto:</dt><dd><ul class="simple">
-<li><p>Yksi käsky per peliticki (poikkeus: GOTO, IF, NOP - nolla tikkiä)</p></li>
-<li><p>Labelit ratkaistaan jäsennysvaiheessa</p></li>
-<li><p>Ohjelma silmukkaa takaisin alkuun END-käskyyn asti</p></li>
-<li><p>LOAD/UNLOAD jatkuvat taustalla suorituksen aikana</p></li>
-</ul>
+<dt>ExecutionMode</dt><dd><p>Ohjelman globaali suoritustila.
+Arvot: RUN (suoritetaan), STOP (pysäytetty), ERROR (virhe)
+Käyttö: Kontrolloi onko ohjelma aktiivinen tick()-kutsuissa</p>
+</dd>
+<dt>CommandType</dt><dd><p>RoboBASIC-käskytyypit jäsennyksen jälkeen.
+Arvot: NOP, LABEL, SET_TARGET_XY, SET_TARGET_ID, MOVE, UP, DOWN, LEFT,</p>
+<blockquote>
+<div><p>RIGHT, LOAD, UNLOAD, GOTO, IF, WAIT, END, ERROR, PRINT</p>
+</div></blockquote>
+<p>Käyttö: Parser tunnistaa käskyt ja VM reitittää suorituksen tyypin mukaan</p>
+</dd>
+<dt>Condition</dt><dd><p>IF-käskyn ehdolliset testit.
+Arvot: AT_TARGET, HAVE_TARGET, LOADING, UNLOADING, FULL, EMPTY
+Käyttö: Evaluoidaan runtime-aikana IF-käskyjen hyppylogiikassa</p>
 </dd>
 </dl>
+</section>
+<section id="virheluokat">
+<h4>Virheluokat<a class="headerlink" href="#virheluokat" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>RoboBASICError(GameError)</dt><dd><p>RoboBASIC-tulkin virheet (syntaksi, suoritus, puuttuvat labelit).
+Attribuutit: message, line_num, line_text, details
+Käyttö: Nostetaan kun ohjelma ei ole validi tai suoritus epäonnistuu</p>
+</dd>
+</dl>
+</section>
+<section id="tietorakenteet">
+<h4>Tietorakenteet<a class="headerlink" href="#tietorakenteet" title="Link to this heading">¶</a></h4>
+<dl>
+<dt>Instruction</dt><dd><p>Yksittäinen jäsennetty RoboBASIC-käsky.
+Attribuutit:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>cmd_type (CommandType): Käskyn tyyppi</p></li>
+<li><p>args (List[Any]): Käskyn argumentit</p></li>
+<li><p>line_num (int): Rivinumero lähdekoodissa (0-pohjainen)</p></li>
+<li><p>raw_text (str): Alkuperäinen lähdekooodirivi</p></li>
+</ul>
+</div></blockquote>
+<p>Käyttö: Parser luo näitä jäsennyksessä, VM suorittaa niitä</p>
+</dd>
+<dt>ParsedProgram</dt><dd><p>Kokonainen jäsennetty RoboBASIC-ohjelma.
+Attribuutit:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>instructions (List[Instruction]): Käskylista järjestyksessä</p></li>
+<li><p>labels (Dict[str, int]): Labelit -&gt; rivinumerot</p></li>
+<li><p>errors (List[str]): Jäsennysvirheet</p></li>
+</ul>
+</div></blockquote>
+<p>Käyttö: Parser palauttaa tämän, VM tallentaa VMState:en</p>
+</dd>
+<dt>VMState</dt><dd><p>RoboBASIC VM:n sisäinen suoritustila.
+Attribuutit:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>program (ParsedProgram): Ladattu ohjelma</p></li>
+<li><p>pc (int): Ohjelmalaskuri (program counter)</p></li>
+<li><p>wait_ticks (int): WAIT-käskyn jäljellä olevat tikit</p></li>
+<li><p>loading_amount (Optional[int]): LOAD-käskyn määrä (None = täyteen)</p></li>
+<li><p>loading_remaining (int): Lastauksen jäljellä oleva määrä</p></li>
+<li><p>unloading_amount (Optional[int]): UNLOAD-käskyn määrä (None = kaikki)</p></li>
+<li><p>unloading_remaining (int): Purun jäljellä oleva määrä</p></li>
+<li><p>error_message (Optional[str]): Virheviesti jos suoritus epäonnistui</p></li>
+</ul>
+</div></blockquote>
+<p>Käyttö: Jokainen VM tallentaa oman tilansa, ei jaettua tilaa robottien välillä</p>
+</dd>
+</dl>
+</section>
+<section id="paaluokat">
+<h4>Pääluokat<a class="headerlink" href="#paaluokat" title="Link to this heading">¶</a></h4>
+<dl>
+<dt>RoboBASICParser</dt><dd><p>RoboBASIC-ohjelmien jäsennin (parser).</p>
+<dl>
+<dt>Vastuut:</dt><dd><ul class="simple">
+<li><p>Lukee lähdekoodin ja tunnistaa käskyt regex-patterneilla</p></li>
+<li><p>Rakentaa Instruction-listan suoritusjärjestyksessä</p></li>
+<li><p>Tallentaa labelit hyppytaulukkoon</p></li>
+<li><p>Kerää syntaksivirheet errors-listaan</p></li>
+<li><p>Validoi että kaikki GOTO/IF-labelit löytyvät</p></li>
+</ul>
+</dd>
+<dt>Julkiset metodit:</dt><dd><ul class="simple">
+<li><p>parse(source_code: str) -&gt; ParsedProgram
+Jäsentää lähdekoodin ParsedProgram-olioksi</p></li>
+</ul>
+</dd>
+<dt>Käyttö:</dt><dd><p>parser = RoboBASICParser()
+program = parser.parse(source_code)
+if program.errors:</p>
+<blockquote>
+<div><p># Käsittele virheet</p>
+</div></blockquote>
+<dl class="simple">
+<dt>else:</dt><dd><p># Lataa ohjelma VM:ään</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</dd>
+<dt>RoboBASICVM</dt><dd><p>RoboBASIC-virtuaalikone yhdelle robotille.</p>
+<dl>
+<dt>Vastuut:</dt><dd><ul class="simple">
+<li><p>Suorittaa jäsennetyn ohjelman tick-pohjaisesti</p></li>
+<li><p>Hallinnoi robotin tilaa (liikkuminen, lastaus, purku)</p></li>
+<li><p>Käsittelee ohjausrakenteita (GOTO, IF, WAIT)</p></li>
+<li><p>Siirtää materiaalit taustalla 1 yksikkö per tikki</p></li>
+<li><p>Etsii reitit BFS-algoritmilla</p></li>
+<li><p>Kerää tapahtumalokia (PRINT-viestit)</p></li>
+</ul>
+</dd>
+<dt>Julkiset metodit:</dt><dd><ul class="simple">
+<li><p>__init__(robot): Luo VM robotille</p></li>
+<li><p>load_program(source_code: str) -&gt; List[str]:
+Lataa ja jäsennä ohjelma, palauttaa virhelistan</p></li>
+<li><p>run() -&gt; bool: Käynnistä ohjelman suoritus</p></li>
+<li><p>stop() -&gt; None: Pysäytä suoritus</p></li>
+<li><p>reset() -&gt; None: Nollaa suoritus alkuun</p></li>
+<li><p>tick(game_map) -&gt; Optional[str]:
+Suorita yksi pelitikki, palauttaa virheviestin jos epäonnistuu</p></li>
+<li><p>get_event_log(clear: bool = False) -&gt; List[str]:
+Hae PRINT-viestit</p></li>
+<li><p>get_state() -&gt; VMState: Hae VM:n sisäinen tila</p></li>
+</ul>
+</dd>
+<dt>Sisäiset metodit (execution):</dt><dd><ul class="simple">
+<li><p>_execute_instruction(game_map, instr): Reitittää käskyn suorituksen</p></li>
+<li><p>_execute_move(game_map): Liikuttaa robottia yksi askel</p></li>
+<li><p>_execute_direction(game_map, direction, amount): Suuntakäskyt</p></li>
+<li><p>_execute_load(game_map, amount): Aloita lastaus</p></li>
+<li><p>_execute_unload(game_map, amount): Aloita purku</p></li>
+<li><p>_process_transfers(game_map): Siirrä materiaalit taustalla</p></li>
+<li><p>_evaluate_condition(condition): Evaluoi IF-ehto</p></li>
+</ul>
+</dd>
+<dt>Sisäiset metodit (apuvälineet):</dt><dd><ul class="simple">
+<li><p>_find_object_by_id(game_map, obj_id): Etsi objekti ID:llä</p></li>
+<li><p>_find_path(game_map, start, goal): BFS-reittihaku</p></li>
+<li><p>_move_robot(game_map, new_pos): Siirrä robotti uuteen sijaintiin</p></li>
+<li><p>_update_robot_path_state(game_map): Päivitä tila kohteen mukaan</p></li>
+<li><p>_get_adjacent_source(game_map): Etsi viereinen materiaalilähde</p></li>
+<li><p>_get_adjacent_destination(game_map): Etsi viereinen materiaali kohde</p></li>
+</ul>
+</dd>
+<dt>Käyttö:</dt><dd><p># Robotin __post_init__ luo VM:n automaattisesti
+robot.vm.load_program(source_code)
+errors = robot.vm.load_program(source_code)
+if not errors:</p>
+<blockquote>
+<div><p>robot.vm.run()</p>
+</div></blockquote>
+<p># Joka pelitikin kohdalla
+robot.vm.tick(game_map)</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</section>
+<section id="apufunktiot">
+<h4>Apufunktiot<a class="headerlink" href="#apufunktiot" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>create_vm(robot) -&gt; RoboBASICVM</dt><dd><p>Luo uuden VM-instanssin robotille.
+Käyttö: Kutsutaan Robot.__post_init__:ssä automaattisesti</p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="esimerkkiohjelma">
+<h3>Esimerkkiohjelma<a class="headerlink" href="#esimerkkiohjelma" title="Link to this heading">¶</a></h3>
+<p>Yksinkertainen kaivosrobotti joka louhii ja vie materiaalin tukikohtaan:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">:</span><span class="n">START</span>
+  <span class="n">SET</span> <span class="n">TARGET</span> <span class="c1">#1        ; Mene kaivokselle (ID=1)</span>
+  <span class="n">IF</span> <span class="n">NOT</span> <span class="n">AT</span> <span class="n">TARGET</span> <span class="n">GOTO</span> <span class="p">:</span><span class="n">MOVE</span>
+
+<span class="p">:</span><span class="n">ATMINE</span>
+  <span class="n">IF</span> <span class="n">FULL</span> <span class="n">GOTO</span> <span class="p">:</span><span class="n">GOBASE</span>
+  <span class="n">LOAD</span>                 <span class="p">;</span> <span class="n">Lastaa</span> <span class="n">kunnes</span> <span class="n">täynnä</span>
+  <span class="n">WAIT</span> <span class="mi">5</span>               <span class="p">;</span> <span class="n">Odota</span> <span class="n">latauksen</span> <span class="n">valmistumista</span>
+  <span class="n">GOTO</span> <span class="p">:</span><span class="n">ATMINE</span>
+
+<span class="p">:</span><span class="n">GOBASE</span>
+  <span class="n">SET</span> <span class="n">TARGET</span> <span class="c1">#10       ; Mene tukikohtaan (ID=10)</span>
+  <span class="n">IF</span> <span class="n">NOT</span> <span class="n">AT</span> <span class="n">TARGET</span> <span class="n">GOTO</span> <span class="p">:</span><span class="n">MOVE</span>
+
+<span class="p">:</span><span class="n">ATBASE</span>
+  <span class="n">IF</span> <span class="n">EMPTY</span> <span class="n">GOTO</span> <span class="p">:</span><span class="n">START</span>
+  <span class="n">UNLOAD</span>               <span class="p">;</span> <span class="n">Purkaa</span> <span class="n">kaikki</span>
+  <span class="n">WAIT</span> <span class="mi">5</span>               <span class="p">;</span> <span class="n">Odota</span> <span class="n">purun</span> <span class="n">valmistumista</span>
+  <span class="n">GOTO</span> <span class="p">:</span><span class="n">ATBASE</span>
+
+<span class="p">:</span><span class="n">MOVE</span>
+  <span class="n">MOVE</span>                 <span class="p">;</span> <span class="n">Liiku</span> <span class="n">yksi</span> <span class="n">askel</span> <span class="n">kohti</span> <span class="n">kohdetta</span>
+  <span class="n">WAIT</span> <span class="mi">1</span>               <span class="p">;</span> <span class="n">Odota</span> <span class="n">ennen</span> <span class="n">seuraavaa</span> <span class="n">liikettä</span>
+  <span class="n">GOTO</span> <span class="p">:</span><span class="n">START</span>
+
+<span class="n">END</span>
+</pre></div>
+</div>
+<dl class="simple">
+<dt>Suorituskulku:</dt><dd><ol class="arabic simple">
+<li><p>Asetetaan kohde kaivokselle -&gt; RobotState.MOVING</p></li>
+<li><p>MOVE-käskyt liikuttavat robottia kunnes AT TARGET -&gt; RobotState.TARGET</p></li>
+<li><p>LOAD aloittaa lastauksen -&gt; RobotState.LOADING</p></li>
+<li><p>Taustalla siirtyy 1 materiaali per tikki kunnes FULL</p></li>
+<li><p>Vaihdetaan kohde tukikohtaan ja liikutaan sinne</p></li>
+<li><p>UNLOAD purkaa materiaalin -&gt; RobotState.UNLOADING</p></li>
+<li><p>Kun EMPTY, palataan alkuun (silmukka)</p></li>
+</ol>
+</dd>
+</dl>
+</section>
+<section id="tuetut-kaskyt">
+<h3>Tuetut käskyt<a class="headerlink" href="#tuetut-kaskyt" title="Link to this heading">¶</a></h3>
+<dl class="simple">
+<dt>Liikkuminen:</dt><dd><p>SET TARGET X Y      - Aseta kohde koordinaateiksi
+SET TARGET #ID      - Aseta kohde objekti-ID:llä
+MOVE                - Liiku yksi askel kohti kohdetta
+UP [N]              - Aseta kohde N ylös (oletus 1)
+DOWN [N]            - Aseta kohde N alas (oletus 1)
+LEFT [N]            - Aseta kohde N vasemmalle (oletus 1)
+RIGHT [N]           - Aseta kohde N oikealle (oletus 1)</p>
+</dd>
+<dt>Materiaalien käsittely:</dt><dd><p>LOAD [N]            - Lastaa N yksikköä tai kunnes täynnä
+UNLOAD [N]          - Purkaa N yksikköä tai kaikki</p>
+</dd>
+<dt>Ohjausrakenteet:</dt><dd><p>:LABEL              - Label-määritys hyppyä varten
+GOTO :LABEL         - Ehdoton hyppy labeliin
+IF cond GOTO :LABEL - Ehdollinen hyppy
+IF NOT cond GOTO :LABEL - Negaatio-ehto
+WAIT N              - Odota N tikkiä
+END                 - Lopeta ohjelma</p>
+</dd>
+<dt>IF-ehdot:</dt><dd><p>AT TARGET           - Robotti on kohteessa
+HAVE TARGET         - Robotilla on kohde asetettuna
+LOADING             - Lastaus käynnissä
+UNLOADING           - Purku käynnissä
+FULL                - Varasto täynnä
+EMPTY               - Varasto tyhjä</p>
+</dd>
+<dt>Debugging:</dt><dd><p>PRINT(text)         - Tulosta viesti lokiin
+ERROR(text)         - Näytä virhe ja lopeta ohjelma</p>
+</dd>
+</dl>
+</section>
+<section id="tekniset-yksityiskohdat">
+<h3>Tekniset yksityiskohdat<a class="headerlink" href="#tekniset-yksityiskohdat" title="Link to this heading">¶</a></h3>
+<ul class="simple">
+<li><p>Parser käyttää 11 regex-patternia käskyjen tunnistamiseen</p></li>
+<li><p>BFS-reittihaku 4-suuntaisella liikkeellä (ei diagonaalia)</p></li>
+<li><p>Materiaalisiirrot 1 yksikkö per tikki realistista simulaatiota varten</p></li>
+<li><p>Ikusilmukkasuoja: max 1000 iteraatiota per tikki</p></li>
+<li><p>Labelit ovat ISOILLA KIRJAIMILLA ja NUMEROILLA (esim. :START, :LOOP1)</p></li>
+<li><p>Kommentit alkavat puolipisteellä (;)</p></li>
+<li><p>Käskyt ovat case-sensitive ja ISOILLA KIRJAIMILLA</p></li>
+</ul>
+</section>
 <dl class="py class">
 <dt class="sig sig-object py" id="robobasic.RobotState">
 <span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">robobasic.</span></span><span class="sig-name descname"><span class="pre">RobotState</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">values</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#robobasic.RobotState" title="Link to this definition">¶</a></dt>
@@ -139,12 +448,12 @@ VM suorittaa käskyt execute_instruction():ssa.</p>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="robobasic.CommandType.SET_TARGET_XY">
-<span class="sig-name descname"><span class="pre">SET_TARGET_XY</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'SET_TARGET_XY'</span></span><a class="headerlink" href="#robobasic.CommandType.SET_TARGET_XY" title="Link to this definition">¶</a></dt>
+<span class="sig-name descname"><span class="pre">SET_TARGET_XY</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'SET</span> <span class="pre">TARGET</span> <span class="pre">XY'</span></span><a class="headerlink" href="#robobasic.CommandType.SET_TARGET_XY" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="robobasic.CommandType.SET_TARGET_ID">
-<span class="sig-name descname"><span class="pre">SET_TARGET_ID</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'SET_TARGET_ID'</span></span><a class="headerlink" href="#robobasic.CommandType.SET_TARGET_ID" title="Link to this definition">¶</a></dt>
+<span class="sig-name descname"><span class="pre">SET_TARGET_ID</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'SET</span> <span class="pre">TARGET</span> <span class="pre">ID'</span></span><a class="headerlink" href="#robobasic.CommandType.SET_TARGET_ID" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -188,8 +497,8 @@ VM suorittaa käskyt execute_instruction():ssa.</p>
 <dd></dd></dl>
 
 <dl class="py attribute">
-<dt class="sig sig-object py" id="robobasic.CommandType.IF_GOTO">
-<span class="sig-name descname"><span class="pre">IF_GOTO</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'IF_GOTO'</span></span><a class="headerlink" href="#robobasic.CommandType.IF_GOTO" title="Link to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="robobasic.CommandType.IF">
+<span class="sig-name descname"><span class="pre">IF</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'IF'</span></span><a class="headerlink" href="#robobasic.CommandType.IF" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -203,8 +512,8 @@ VM suorittaa käskyt execute_instruction():ssa.</p>
 <dd></dd></dl>
 
 <dl class="py attribute">
-<dt class="sig sig-object py" id="robobasic.CommandType.ERROR_CMD">
-<span class="sig-name descname"><span class="pre">ERROR_CMD</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'ERROR_CMD'</span></span><a class="headerlink" href="#robobasic.CommandType.ERROR_CMD" title="Link to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="robobasic.CommandType.ERROR">
+<span class="sig-name descname"><span class="pre">ERROR</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'ERROR'</span></span><a class="headerlink" href="#robobasic.CommandType.ERROR" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -1414,217 +1723,8 @@ Used for terrain generation and map obstacles.</p>
 </dd></dl>
 
 </section>
-<section id="module-kaivosai">
-<span id="kaivosai"></span><h2>kaivosai<a class="headerlink" href="#module-kaivosai" title="Link to this heading">¶</a></h2>
-<p>KaivosAI - Main entry point with Textual TUI.</p>
-<dl class="py class">
-<dt class="sig sig-object py" id="kaivosai.GameSettingsList">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">kaivosai.</span></span><span class="sig-name descname"><span class="pre">GameSettingsList</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_header</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_row_labels</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fixed_rows</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fixed_columns</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">zebra_stripes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header_height</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_cursor</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cursor_foreground_priority</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'renderable'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'css'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'css'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cursor_background_priority</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'renderable'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'css'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'renderable'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cursor_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'cell'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'row'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'column'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'none'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'cell'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cell_padding</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">classes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">disabled</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.GameSettingsList" title="Link to this definition">¶</a></dt>
-<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">DataTable</span></code></p>
-<p>Asetuslistanäkymä.</p>
-<dl class="py method">
-<dt class="sig sig-object py" id="kaivosai.GameSettingsList.on_mount">
-<span class="sig-name descname"><span class="pre">on_mount</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.GameSettingsList.on_mount" title="Link to this definition">¶</a></dt>
-<dd><p>Alustus: käytä jaettua tietokantayhteyttä.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kaivosai.GameSettingsList.update_list">
-<span class="sig-name descname"><span class="pre">update_list</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.GameSettingsList.update_list" title="Link to this definition">¶</a></dt>
-<dd><p>Hae ja näytä peliasetukset tietokannasta.</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="kaivosai.GameSettingsList.can_focus">
-<span class="sig-name descname"><span class="pre">can_focus</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#kaivosai.GameSettingsList.can_focus" title="Link to this definition">¶</a></dt>
-<dd><p>Widget may receive focus.</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="kaivosai.GameSettingsList.can_focus_children">
-<span class="sig-name descname"><span class="pre">can_focus_children</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#kaivosai.GameSettingsList.can_focus_children" title="Link to this definition">¶</a></dt>
-<dd><p>Widget’s children may receive focus.</p>
-</dd></dl>
-
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="kaivosai.GameSettingsPanel">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">kaivosai.</span></span><span class="sig-name descname"><span class="pre">GameSettingsPanel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">children</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Widget</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">classes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">disabled</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">markup</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.GameSettingsPanel" title="Link to this definition">¶</a></dt>
-<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Container</span></code></p>
-<p>Asetuspaneeli: sisältää asetuslistauksen ja hallintanapit.</p>
-<dl class="py method">
-<dt class="sig sig-object py" id="kaivosai.GameSettingsPanel.compose">
-<span class="sig-name descname"><span class="pre">compose</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Iterable</span><span class="p"><span class="pre">[</span></span><span class="pre">Widget</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#kaivosai.GameSettingsPanel.compose" title="Link to this definition">¶</a></dt>
-<dd><p>Luo paneelin komponentit.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kaivosai.GameSettingsPanel.on_button_pressed">
-<span class="sig-name descname"><span class="pre">on_button_pressed</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">event</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Pressed</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.GameSettingsPanel.on_button_pressed" title="Link to this definition">¶</a></dt>
-<dd><p>Käsittele nappulan painallus.</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="kaivosai.GameSettingsPanel.can_focus">
-<span class="sig-name descname"><span class="pre">can_focus</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#kaivosai.GameSettingsPanel.can_focus" title="Link to this definition">¶</a></dt>
-<dd><p>Widget may receive focus.</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="kaivosai.GameSettingsPanel.can_focus_children">
-<span class="sig-name descname"><span class="pre">can_focus_children</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#kaivosai.GameSettingsPanel.can_focus_children" title="Link to this definition">¶</a></dt>
-<dd><p>Widget’s children may receive focus.</p>
-</dd></dl>
-
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="kaivosai.GameMapPanel">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">kaivosai.</span></span><span class="sig-name descname"><span class="pre">GameMapPanel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_header</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_row_labels</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fixed_rows</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fixed_columns</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">zebra_stripes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header_height</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_cursor</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cursor_foreground_priority</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'renderable'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'css'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'css'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cursor_background_priority</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'renderable'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'css'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'renderable'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cursor_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'cell'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'row'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'column'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'none'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'cell'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cell_padding</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">classes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">disabled</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.GameMapPanel" title="Link to this definition">¶</a></dt>
-<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">DataTable</span></code></p>
-<p>Karttanäkymä: näyttää pelikartan ruudukkona.</p>
-<dl class="py method">
-<dt class="sig sig-object py" id="kaivosai.GameMapPanel.on_mount">
-<span class="sig-name descname"><span class="pre">on_mount</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.GameMapPanel.on_mount" title="Link to this definition">¶</a></dt>
-<dd><p>Alustus: aseta solukohdistin ja riviotsikot.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kaivosai.GameMapPanel.refresh_from_map">
-<span class="sig-name descname"><span class="pre">refresh_from_map</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.GameMapPanel.refresh_from_map" title="Link to this definition">¶</a></dt>
-<dd><p>Päivitä karttanäkymä muistissa olevasta Map.cells-rakenteesta.</p>
-<p>Rakentaa ruudukon objekteista luotettavaa näyttöä varten.</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="kaivosai.GameMapPanel.can_focus">
-<span class="sig-name descname"><span class="pre">can_focus</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#kaivosai.GameMapPanel.can_focus" title="Link to this definition">¶</a></dt>
-<dd><p>Widget may receive focus.</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="kaivosai.GameMapPanel.can_focus_children">
-<span class="sig-name descname"><span class="pre">can_focus_children</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#kaivosai.GameMapPanel.can_focus_children" title="Link to this definition">¶</a></dt>
-<dd><p>Widget’s children may receive focus.</p>
-</dd></dl>
-
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">kaivosai.</span></span><span class="sig-name descname"><span class="pre">KaivosAIApp</span></span><a class="headerlink" href="#kaivosai.KaivosAIApp" title="Link to this definition">¶</a></dt>
-<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">App</span></code></p>
-<p>KaivosAI-pelin päätekstuaalinen käyttöliittymä.</p>
-<dl class="py attribute">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.CSS_PATH">
-<span class="sig-name descname"><span class="pre">CSS_PATH</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'kaivosai.tcss'</span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.CSS_PATH" title="Link to this definition">¶</a></dt>
-<dd><p>File paths to load CSS from.</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.BINDINGS">
-<span class="sig-name descname"><span class="pre">BINDINGS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">[('q',</span> <span class="pre">'quit',</span> <span class="pre">'Quit'),</span> <span class="pre">('p',</span> <span class="pre">'toggle_pause',</span> <span class="pre">'Pause/Resume')]</span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.BINDINGS" title="Link to this definition">¶</a></dt>
-<dd><p>The default key bindings.</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.mapPanel">
-<span class="sig-name descname"><span class="pre">mapPanel</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#kaivosai.GameMapPanel" title="kaivosai.GameMapPanel"><span class="pre">GameMapPanel</span></a></span><a class="headerlink" href="#kaivosai.KaivosAIApp.mapPanel" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.commandsPanel">
-<span class="sig-name descname"><span class="pre">commandsPanel</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">DataTable</span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.commandsPanel" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.objectsPanel">
-<span class="sig-name descname"><span class="pre">objectsPanel</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">DataTable</span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.objectsPanel" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.eventsPanel">
-<span class="sig-name descname"><span class="pre">eventsPanel</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Log</span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.eventsPanel" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.statusPanel">
-<span class="sig-name descname"><span class="pre">statusPanel</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Static</span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.statusPanel" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.gamesettingsPanel">
-<span class="sig-name descname"><span class="pre">gamesettingsPanel</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#kaivosai.GameSettingsPanel" title="kaivosai.GameSettingsPanel"><span class="pre">GameSettingsPanel</span></a></span><a class="headerlink" href="#kaivosai.KaivosAIApp.gamesettingsPanel" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.game_loop">
-<span class="sig-name descname"><span class="pre">game_loop</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#gameloop.GameLoop" title="gameloop.GameLoop"><span class="pre">GameLoop</span></a></span><a class="headerlink" href="#kaivosai.KaivosAIApp.game_loop" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.compose">
-<span class="sig-name descname"><span class="pre">compose</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Iterable</span><span class="p"><span class="pre">[</span></span><span class="pre">Widget</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.compose" title="Link to this definition">¶</a></dt>
-<dd><p>Luo sovelluksen komponentit.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.on_ready">
-<span class="sig-name descname"><span class="pre">on_ready</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.on_ready" title="Link to this definition">¶</a></dt>
-<dd><p>Kutsutaan kun sovellus on valmis - käynnistä pelisilmukka.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.on_mount">
-<span class="sig-name descname"><span class="pre">on_mount</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.on_mount" title="Link to this definition">¶</a></dt>
-<dd><p>Liitä sovellus ja aseta otsikot.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.refresh_objects_panel">
-<span class="sig-name descname"><span class="pre">refresh_objects_panel</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.refresh_objects_panel" title="Link to this definition">¶</a></dt>
-<dd><p>Päivitä objects-paneeli kartalla olevilla roboteilla ja rakennuksilla.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.on_data_table_row_selected">
-<span class="sig-name descname"><span class="pre">on_data_table_row_selected</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">event</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">RowSelected</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.on_data_table_row_selected" title="Link to this definition">¶</a></dt>
-<dd><p>Siirrä kartta valitun objektin koordinaatteihin objects-paneelista.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.update_game_ui">
-<span class="sig-name descname"><span class="pre">update_game_ui</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.update_game_ui" title="Link to this definition">¶</a></dt>
-<dd><p>Päivitä käyttöliittymä pelisilmukan kutsumana.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.action_toggle_pause">
-<span class="sig-name descname"><span class="pre">action_toggle_pause</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.action_toggle_pause" title="Link to this definition">¶</a></dt>
-<dd><p>Vaihda pelin taukotila.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.handle_settings_button">
-<span class="sig-name descname"><span class="pre">handle_settings_button</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">button_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.handle_settings_button" title="Link to this definition">¶</a></dt>
-<dd><p>Käsittele asetuspaneelin nappuloiden painallukset.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.on_unmount">
-<span class="sig-name descname"><span class="pre">on_unmount</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.on_unmount" title="Link to this definition">¶</a></dt>
-<dd><p>Siivoa resurssit ennen sulkemista.</p>
-</dd></dl>
-
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="kaivosai.main">
-<span class="sig-prename descclassname"><span class="pre">kaivosai.</span></span><span class="sig-name descname"><span class="pre">main</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.main" title="Link to this definition">¶</a></dt>
-<dd><p>Käynnistä KaivosAI-sovellus.</p>
-</dd></dl>
-
+<section id="kaivosai">
+<h2>kaivosai<a class="headerlink" href="#kaivosai" title="Link to this heading">¶</a></h2>
 </section>
 <section id="module-database">
 <span id="database"></span><h2>database<a class="headerlink" href="#module-database" title="Link to this heading">¶</a></h2>
@@ -2072,7 +2172,7 @@ allowing broad exception catching when needed.</p>
 <li class="toctree-l2"><a class="reference internal" href="#module-map">map</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#module-models">models</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#module-gameloop">gameloop</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#module-kaivosai">kaivosai</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#kaivosai">kaivosai</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#module-database">database</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#module-exceptions">exceptions</a></li>
 </ul>

@@ -3,16 +3,302 @@
 Virtuaalikone robottien ohjelmointiin KaivosAI-kaivossimulaatiossa.
 BASIC-inspiroitu syntaksi yksinkertaisella label-pohjaisella hyppylogiikalla.
 
-Pääluokat:
-    - RoboBASICParser: Jäsentää ohjelmakoodin käskyiksi
-    - RoboBASICVM: Suorittaa jäsennetyn ohjelman
-    - RoboBASICError: Ohjelman virhetilanteet
+Miten RoboBASIC VM toimii
+==========================
 
-Suoritusmallin yhteenveto:
-    - Yksi käsky per peliticki (poikkeus: GOTO, IF, NOP - nolla tikkiä)
-    - Labelit ratkaistaan jäsennysvaiheessa
-    - Ohjelma silmukkaa takaisin alkuun END-käskyyn asti
-    - LOAD/UNLOAD jatkuvat taustalla suorituksen aikana
+Arkkitehtuuri
+-------------
+RoboBASIC VM on per-robotti virtuaalikone, jossa jokainen robotti saa oman
+VM-instanssinsa täydellä eristyksellä muista roboteista. VM:n toiminta perustuu
+kolmivaiheiseen malliin: jäsennys, lataus ja suoritus.
+
+1. **Jäsennysvaihe (Parse)**
+   - RoboBASICParser lukee lähdekoodin rivi riviltä
+   - Tunnistaa käskyt regex-patterneilla (16 käskytyyppiä)
+   - Rakentaa Instruction-olioiden listan
+   - Tallentaa labelit hyppytaulukkoon (label -> rivinumero)
+   - Kerää syntaksivirheet errors-listaan
+   
+2. **Latasvaihe (Load)**
+   - VM vastaanottaa jäsennetyn ohjelman
+   - Alustaa VMState-tilan (ohjelmalaskuri, laskurit, virheet)
+   - Asettaa robotin execution_mode = STOP
+   - Virheellinen ohjelma -> execution_mode = ERROR
+
+3. **Suoritusvaihe (Execute)**
+   - Kutsutaan vm.run() käynnistämään suoritus
+   - Joka pelitikin kohdalla kutsutaan vm.tick(game_map)
+   - VM suorittaa käskyjä kunnes yksi tikki kulutettu
+   - Taustaprosessit (LOAD/UNLOAD) etenevät 1 yksikkö per tikki
+
+Suoritusmalli
+-------------
+**Tikin käsittely (tick-sykli):**
+
+1. Tarkista suoritustila (RUN/STOP/ERROR)
+2. Käsittele taustaprosessit (_process_transfers)
+   - LOADING: Siirrä 1 materiaalia lähteestä -> robotti
+   - UNLOADING: Siirrä 1 materiaalia robotti -> kohde
+3. Tarkista WAIT-laskuri (jos > 0, vähennä ja lopeta)
+4. Suorita käskyjä kunnes tikki kulutettu:
+   - Nollatikin käskyt: GOTO, IF (hyppy), LABEL, NOP
+   - Yhden tikin käskyt: MOVE, LOAD, UNLOAD, SET TARGET, WAIT, jne.
+   - Lopetuskäskyt: END (-> STOP), ERROR (-> ERROR)
+5. Silmukkaa ohjelman alkuun jos PC ylittää ohjelman pituuden
+
+**Käskyjen suoritustavat:**
+
+- **Välittömät käskyt**: Suoritetaan heti, ei tikki (GOTO, IF, LABEL, NOP)
+- **Tikin käskyt**: Kuluttavat yhden tikin (MOVE, LOAD, UNLOAD, WAIT, jne.)
+- **Taustakäskyt**: Aloittavat prosessin joka etenee tickeissä (LOAD, UNLOAD)
+
+**Robotin tilakone (RobotState):**
+
+- IDLE: Ei toimintaa, odottaa käskyjä
+- MOVING: Liikkuu kohti asetettua kohdetta
+- BLOCKED: Kohde asetettu mutta ei reittiä
+- TARGET: Kohteessa, valmis seuraavaan käskyyn
+- LOADING: Lastaa materiaalia taustalla
+- UNLOADING: Purkaa materiaalia taustalla
+
+Luokat ja tietorakenteet
+=========================
+
+Enumit (tila- ja tyypitiedot)
+------------------------------
+
+RobotState
+    Robotin tila RoboBASIC-suorituksen aikana.
+    Arvot: IDLE, MOVING, BLOCKED, TARGET, LOADING, UNLOADING
+    Käyttö: Määrittää mitä robotti tekee ja miten se reagoi käskyihin
+
+ExecutionMode
+    Ohjelman globaali suoritustila.
+    Arvot: RUN (suoritetaan), STOP (pysäytetty), ERROR (virhe)
+    Käyttö: Kontrolloi onko ohjelma aktiivinen tick()-kutsuissa
+
+CommandType
+    RoboBASIC-käskytyypit jäsennyksen jälkeen.
+    Arvot: NOP, LABEL, SET_TARGET_XY, SET_TARGET_ID, MOVE, UP, DOWN, LEFT, 
+           RIGHT, LOAD, UNLOAD, GOTO, IF, WAIT, END, ERROR, PRINT
+    Käyttö: Parser tunnistaa käskyt ja VM reitittää suorituksen tyypin mukaan
+
+Condition
+    IF-käskyn ehdolliset testit.
+    Arvot: AT_TARGET, HAVE_TARGET, LOADING, UNLOADING, FULL, EMPTY
+    Käyttö: Evaluoidaan runtime-aikana IF-käskyjen hyppylogiikassa
+
+Virheluokat
+-----------
+
+RoboBASICError(GameError)
+    RoboBASIC-tulkin virheet (syntaksi, suoritus, puuttuvat labelit).
+    Attribuutit: message, line_num, line_text, details
+    Käyttö: Nostetaan kun ohjelma ei ole validi tai suoritus epäonnistuu
+
+Tietorakenteet
+--------------
+
+Instruction
+    Yksittäinen jäsennetty RoboBASIC-käsky.
+    Attribuutit:
+        - cmd_type (CommandType): Käskyn tyyppi
+        - args (List[Any]): Käskyn argumentit
+        - line_num (int): Rivinumero lähdekoodissa (0-pohjainen)
+        - raw_text (str): Alkuperäinen lähdekooodirivi
+    Käyttö: Parser luo näitä jäsennyksessä, VM suorittaa niitä
+
+ParsedProgram
+    Kokonainen jäsennetty RoboBASIC-ohjelma.
+    Attribuutit:
+        - instructions (List[Instruction]): Käskylista järjestyksessä
+        - labels (Dict[str, int]): Labelit -> rivinumerot
+        - errors (List[str]): Jäsennysvirheet
+    Käyttö: Parser palauttaa tämän, VM tallentaa VMState:en
+
+VMState
+    RoboBASIC VM:n sisäinen suoritustila.
+    Attribuutit:
+        - program (ParsedProgram): Ladattu ohjelma
+        - pc (int): Ohjelmalaskuri (program counter)
+        - wait_ticks (int): WAIT-käskyn jäljellä olevat tikit
+        - loading_amount (Optional[int]): LOAD-käskyn määrä (None = täyteen)
+        - loading_remaining (int): Lastauksen jäljellä oleva määrä
+        - unloading_amount (Optional[int]): UNLOAD-käskyn määrä (None = kaikki)
+        - unloading_remaining (int): Purun jäljellä oleva määrä
+        - error_message (Optional[str]): Virheviesti jos suoritus epäonnistui
+    Käyttö: Jokainen VM tallentaa oman tilansa, ei jaettua tilaa robottien välillä
+
+Pääluokat
+---------
+
+RoboBASICParser
+    RoboBASIC-ohjelmien jäsennin (parser).
+    
+    Vastuut:
+        - Lukee lähdekoodin ja tunnistaa käskyt regex-patterneilla
+        - Rakentaa Instruction-listan suoritusjärjestyksessä
+        - Tallentaa labelit hyppytaulukkoon
+        - Kerää syntaksivirheet errors-listaan
+        - Validoi että kaikki GOTO/IF-labelit löytyvät
+    
+    Julkiset metodit:
+        - parse(source_code: str) -> ParsedProgram
+          Jäsentää lähdekoodin ParsedProgram-olioksi
+    
+    Käyttö:
+        parser = RoboBASICParser()
+        program = parser.parse(source_code)
+        if program.errors:
+            # Käsittele virheet
+        else:
+            # Lataa ohjelma VM:ään
+
+RoboBASICVM
+    RoboBASIC-virtuaalikone yhdelle robotille.
+    
+    Vastuut:
+        - Suorittaa jäsennetyn ohjelman tick-pohjaisesti
+        - Hallinnoi robotin tilaa (liikkuminen, lastaus, purku)
+        - Käsittelee ohjausrakenteita (GOTO, IF, WAIT)
+        - Siirtää materiaalit taustalla 1 yksikkö per tikki
+        - Etsii reitit BFS-algoritmilla
+        - Kerää tapahtumalokia (PRINT-viestit)
+    
+    Julkiset metodit:
+        - __init__(robot): Luo VM robotille
+        - load_program(source_code: str) -> List[str]: 
+          Lataa ja jäsennä ohjelma, palauttaa virhelistan
+        - run() -> bool: Käynnistä ohjelman suoritus
+        - stop() -> None: Pysäytä suoritus
+        - reset() -> None: Nollaa suoritus alkuun
+        - tick(game_map) -> Optional[str]: 
+          Suorita yksi pelitikki, palauttaa virheviestin jos epäonnistuu
+        - get_event_log(clear: bool = False) -> List[str]: 
+          Hae PRINT-viestit
+        - get_state() -> VMState: Hae VM:n sisäinen tila
+    
+    Sisäiset metodit (execution):
+        - _execute_instruction(game_map, instr): Reitittää käskyn suorituksen
+        - _execute_move(game_map): Liikuttaa robottia yksi askel
+        - _execute_direction(game_map, direction, amount): Suuntakäskyt
+        - _execute_load(game_map, amount): Aloita lastaus
+        - _execute_unload(game_map, amount): Aloita purku
+        - _process_transfers(game_map): Siirrä materiaalit taustalla
+        - _evaluate_condition(condition): Evaluoi IF-ehto
+    
+    Sisäiset metodit (apuvälineet):
+        - _find_object_by_id(game_map, obj_id): Etsi objekti ID:llä
+        - _find_path(game_map, start, goal): BFS-reittihaku
+        - _move_robot(game_map, new_pos): Siirrä robotti uuteen sijaintiin
+        - _update_robot_path_state(game_map): Päivitä tila kohteen mukaan
+        - _get_adjacent_source(game_map): Etsi viereinen materiaalilähde
+        - _get_adjacent_destination(game_map): Etsi viereinen materiaali kohde
+    
+    Käyttö:
+        # Robotin __post_init__ luo VM:n automaattisesti
+        robot.vm.load_program(source_code)
+        errors = robot.vm.load_program(source_code)
+        if not errors:
+            robot.vm.run()
+        
+        # Joka pelitikin kohdalla
+        robot.vm.tick(game_map)
+
+Apufunktiot
+-----------
+
+create_vm(robot) -> RoboBASICVM
+    Luo uuden VM-instanssin robotille.
+    Käyttö: Kutsutaan Robot.__post_init__:ssä automaattisesti
+
+Esimerkkiohjelma
+================
+
+Yksinkertainen kaivosrobotti joka louhii ja vie materiaalin tukikohtaan::
+
+    :START
+      SET TARGET #1        ; Mene kaivokselle (ID=1)
+      IF NOT AT TARGET GOTO :MOVE
+      
+    :ATMINE
+      IF FULL GOTO :GOBASE
+      LOAD                 ; Lastaa kunnes täynnä
+      WAIT 5               ; Odota latauksen valmistumista
+      GOTO :ATMINE
+      
+    :GOBASE
+      SET TARGET #10       ; Mene tukikohtaan (ID=10)
+      IF NOT AT TARGET GOTO :MOVE
+      
+    :ATBASE
+      IF EMPTY GOTO :START
+      UNLOAD               ; Purkaa kaikki
+      WAIT 5               ; Odota purun valmistumista
+      GOTO :ATBASE
+
+    :MOVE
+      MOVE                 ; Liiku yksi askel kohti kohdetta
+      WAIT 1               ; Odota ennen seuraavaa liikettä
+      GOTO :START
+
+    END
+
+Suorituskulku:
+    1. Asetetaan kohde kaivokselle -> RobotState.MOVING
+    2. MOVE-käskyt liikuttavat robottia kunnes AT TARGET -> RobotState.TARGET
+    3. LOAD aloittaa lastauksen -> RobotState.LOADING
+    4. Taustalla siirtyy 1 materiaali per tikki kunnes FULL
+    5. Vaihdetaan kohde tukikohtaan ja liikutaan sinne
+    6. UNLOAD purkaa materiaalin -> RobotState.UNLOADING
+    7. Kun EMPTY, palataan alkuun (silmukka)
+
+Tuetut käskyt
+=============
+
+Liikkuminen:
+    SET TARGET X Y      - Aseta kohde koordinaateiksi
+    SET TARGET #ID      - Aseta kohde objekti-ID:llä
+    MOVE                - Liiku yksi askel kohti kohdetta
+    UP [N]              - Aseta kohde N ylös (oletus 1)
+    DOWN [N]            - Aseta kohde N alas (oletus 1)
+    LEFT [N]            - Aseta kohde N vasemmalle (oletus 1)
+    RIGHT [N]           - Aseta kohde N oikealle (oletus 1)
+
+Materiaalien käsittely:
+    LOAD [N]            - Lastaa N yksikköä tai kunnes täynnä
+    UNLOAD [N]          - Purkaa N yksikköä tai kaikki
+
+Ohjausrakenteet:
+    :LABEL              - Label-määritys hyppyä varten
+    GOTO :LABEL         - Ehdoton hyppy labeliin
+    IF cond GOTO :LABEL - Ehdollinen hyppy
+    IF NOT cond GOTO :LABEL - Negaatio-ehto
+    WAIT N              - Odota N tikkiä
+    END                 - Lopeta ohjelma
+
+IF-ehdot:
+    AT TARGET           - Robotti on kohteessa
+    HAVE TARGET         - Robotilla on kohde asetettuna
+    LOADING             - Lastaus käynnissä
+    UNLOADING           - Purku käynnissä
+    FULL                - Varasto täynnä
+    EMPTY               - Varasto tyhjä
+
+Debugging:
+    PRINT(text)         - Tulosta viesti lokiin
+    ERROR(text)         - Näytä virhe ja lopeta ohjelma
+
+Tekniset yksityiskohdat
+=======================
+
+- Parser käyttää 11 regex-patternia käskyjen tunnistamiseen
+- BFS-reittihaku 4-suuntaisella liikkeellä (ei diagonaalia)
+- Materiaalisiirrot 1 yksikkö per tikki realistista simulaatiota varten
+- Ikusilmukkasuoja: max 1000 iteraatiota per tikki
+- Labelit ovat ISOILLA KIRJAIMILLA ja NUMEROILLA (esim. :START, :LOOP1)
+- Kommentit alkavat puolipisteellä (;)
+- Käskyt ovat case-sensitive ja ISOILLA KIRJAIMILLA
 """
 
 from dataclasses import dataclass, field
@@ -62,8 +348,8 @@ class CommandType(Enum):
     """
     NOP = "NOP"                 # Tyhjä rivi / ei operaatiota
     LABEL = "LABEL"             # Label-määrittely
-    SET_TARGET_XY = "SET_TARGET_XY"     # SET TARGET X Y
-    SET_TARGET_ID = "SET_TARGET_ID"     # SET TARGET #ID
+    SET_TARGET_XY = "SET TARGET XY"     # SET TARGET X Y
+    SET_TARGET_ID = "SET TARGET ID"     # SET TARGET #ID
     MOVE = "MOVE"               # Liiku kohti kohdetta
     UP = "UP"                   # Suuntatyyppi ylös
     DOWN = "DOWN"               # Suuntatyyppi alas
@@ -72,10 +358,10 @@ class CommandType(Enum):
     LOAD = "LOAD"               # Aloita lastaus
     UNLOAD = "UNLOAD"           # Aloita purku
     GOTO = "GOTO"               # Hyppää labeliin
-    IF_GOTO = "IF_GOTO"         # Ehdollinen hyppy
+    IF = "IF"         # Ehdollinen hyppy
     WAIT = "WAIT"               # Odota N tikkiä
     END = "END"                 # Lopeta ohjelma
-    ERROR_CMD = "ERROR_CMD"     # Näytä virhe ja lopeta
+    ERROR = "ERROR"     # Näytä virhe ja lopeta
     PRINT = "PRINT"             # Tulosta viesti
 
 
@@ -249,7 +535,7 @@ class RoboBASICParser:
                 raw_text=raw_text
             )
         
-        # SET TARGET X Y
+        # SET TARGET XY
         match = self.SET_TARGET_XY_PATTERN.match(line)
         if match:
             x, y = int(match.group(1)), int(match.group(2))
@@ -260,7 +546,7 @@ class RoboBASICParser:
                 raw_text=raw_text
             )
         
-        # SET TARGET #ID
+        # SET TARGET ID
         match = self.SET_TARGET_ID_PATTERN.match(line)
         if match:
             obj_id = int(match.group(1))
@@ -381,7 +667,7 @@ class RoboBASICParser:
                 raw_text=raw_text
             )
         
-        # ERROR(TEXT)
+        # ERROR TEXT 
         match = self.ERROR_PATTERN.match(line)
         if match:
             message = match.group(1)
@@ -392,7 +678,7 @@ class RoboBASICParser:
                 raw_text=raw_text
             )
         
-        # PRINT(TEXT)
+        # PRINT TEXT
         match = self.PRINT_PATTERN.match(line)
         if match:
             message = match.group(1)
@@ -669,7 +955,7 @@ class RoboBASICVM:
         if cmd == CommandType.LABEL:
             return 'continue'
         
-        # SET TARGET X Y
+        # SET TARGET XY
         if cmd == CommandType.SET_TARGET_XY:
             x, y = instr.args
             if not game_map.in_bounds((x, y)):
@@ -679,7 +965,7 @@ class RoboBASICVM:
             self._update_robot_path_state(game_map)
             return 'tick'
         
-        # SET TARGET #ID
+        # SET TARGET ID
         if cmd == CommandType.SET_TARGET_ID:
             obj_id = instr.args[0]
             target_obj = self._find_object_by_id(game_map, obj_id)
@@ -742,12 +1028,12 @@ class RoboBASICVM:
         if cmd == CommandType.END:
             return 'end'
         
-        # ERROR(TEXT)
+        # ERROR TEXT
         if cmd == CommandType.ERROR_CMD:
             state.error_message = instr.args[0]
             return 'error'
         
-        # PRINT(TEXT)
+        # PRINT TEXT
         if cmd == CommandType.PRINT:
             message = instr.args[0]
             self.event_log.append(message)
