@@ -507,13 +507,14 @@ class Map:
         return rocks_added
 
     def add_initial_buildings(self):
-        """Lisää karttaan alkutilat: 1 tukikohta, 10 kaivosta ja 5 varastoa.
+        """Lisää karttaan alkutilat: 1 tukikohta, 10 kaivosta, 5 varastoa ja 3 robottia.
         
-        Sijoittaa rakennukset satunnaisiin vapaisiin sijainteihin välttäen reunoja
-        ja varattuja soluja. Käyttää erätallenusta suorituskyvyn parantamiseksi.
+        Sijoittaa rakennukset ja robotit satunnaisiin vapaisiin sijainteihin välttäen reunoja
+        ja varattuja soluja. Jokainen robotti saa RoboBASIC-ohjelman joka tulostaa 
+        käynnistys- ja lopetusviestit. Käyttää erätallenusta suorituskyvyn parantamiseksi.
         
         Returns:
-            Tuple (base_count, mine_count, storage_count): Lisättyjen rakennusten määrät
+            Tuple (base_count, mine_count, storage_count, robot_count): Lisättyjen kohteiden määrät
             
         Raises:
             ValueError: Jos vapaita sijainteja ei löydy riittävästi
@@ -522,6 +523,7 @@ class Map:
         base_count = 0
         mine_count = 0
         storage_count = 0
+        robot_count = 0
         
         # Kerää kaikki vapaat sijainnit (välttäen reunoja)
         free_positions = []
@@ -531,7 +533,7 @@ class Map:
                     free_positions.append((x, y))
         
         # Tarkista että on riittävästi tilaa
-        required_buildings = 1 + 10 + 5  # tukikohta + kaivokset + varastot
+        required_buildings = 1 + 10 + 5 + 3  # tukikohta + kaivokset + varastot + robotit
         if len(free_positions) < required_buildings:
             raise ValueError(
                 f"Ei tarpeeksi vapaita sijainteja. Tarvitaan {required_buildings}, "
@@ -564,20 +566,39 @@ class Map:
             buildings_added.append(storage)
             storage_count += 1
         
-        # Erätallennus kaikille rakennuksille yhdellä transaktiolla
+        # Lisää 3 robottia
+        for i in range(3):
+            pos = free_positions.pop()
+            # Robotin RoboBASIC-ohjelma
+            program = f"""PRINT(Robot {i+1} start)
+NOP
+NOP
+PRINT(Robot {i+1} stop)
+END"""
+            
+            robot = Robot(
+                name=f"Robot {i+1}",
+                pos=pos,
+                program_text=program
+            )
+            self.add_object(robot, pos, persist=False)
+            buildings_added.append(robot)
+            robot_count += 1
+
+        # Erätallennus kaikille objekteille yhdellä transaktiolla
         if self.conn and buildings_added:
             try:
                 self.conn.execute("BEGIN")
-                for building in buildings_added:
-                    persist_object(self.conn, building, commit=False)
+                for obj in buildings_added:
+                    persist_object(self.conn, obj, commit=False)
                 self.conn.commit()
             except Exception:
                 try:
                     self.conn.rollback()
                 except Exception:
                     pass
-        
-        return (base_count, mine_count, storage_count)
+            
+        return (base_count, mine_count, storage_count, robot_count)
 
     def generate_random_rocks(self, count: int = 50, density: float = 0.05):
         """Generoi satunnaisia kiviä hajallaan kartalle.

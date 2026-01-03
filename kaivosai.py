@@ -558,13 +558,13 @@ class KaivosAIApp(App):
                 )
 
         elif button_name == "AddBuildings":
-            # Lisää rakennukset kartalle
+            # Lisää rakennukset ja robotit kartalle
             try:
-                base_count, mine_count, storage_count = self.game_map.add_initial_buildings()
+                base_count, mine_count, storage_count, robot_count = self.game_map.add_initial_buildings()
                 database.log_event(
                     self.dbconn,
                     "buildings_added",
-                    f"Added {base_count} base, {mine_count} mine, {storage_count} storage",
+                    f"Lisätty: {base_count} tukikohta, {mine_count} kaivosta, {storage_count} varastoa, {robot_count} robottia",
                 )
                 # Päivitä karttapaneeli
                 self.mapPanel.refresh_from_map()
@@ -574,13 +574,13 @@ class KaivosAIApp(App):
                 database.log_event(
                     self.dbconn,
                     "buildings_error",
-                    f"Error adding buildings: {str(e)}",
+                    f"Virhe rakennusten lisäyksessä: {str(e)}",
                 )
             except Exception as e:
                 database.log_event(
                     self.dbconn,
                     "buildings_error",
-                    f"Unexpected error: {str(e)}",
+                    f"Odottamaton virhe: {str(e)}",
                 )
 
         elif button_name == "Load":

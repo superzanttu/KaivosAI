@@ -450,19 +450,19 @@ class RoboBASICParser:
     """
     
     # Regex-patternit käskyjen tunnistamiseen
-    LABEL_PATTERN = re.compile(r'^:([A-Z0-9]+)$')
-    SET_TARGET_XY_PATTERN = re.compile(r'^SET\s+TARGET\s+(\d+)\s+(\d+)$')
-    SET_TARGET_ID_PATTERN = re.compile(r'^SET\s+TARGET\s+#(\d+)$')
-    DIRECTION_PATTERN = re.compile(r'^(UP|DOWN|LEFT|RIGHT)(?:\s+(\d+))?$')
-    LOAD_PATTERN = re.compile(r'^LOAD(?:\s+(\d+))?$')
-    UNLOAD_PATTERN = re.compile(r'^UNLOAD(?:\s+(\d+))?$')
-    GOTO_PATTERN = re.compile(r'^GOTO\s+:([A-Z0-9]+)$')
+    LABEL_PATTERN = re.compile(r'^:([A-Z0-9]+)$') # :LABEL
+    SET_TARGET_XY_PATTERN = re.compile(r'^SET\s+TARGET\s+(\d+)\s+(\d+)$') # SET TARGET XY int int
+    SET_TARGET_ID_PATTERN = re.compile(r'^SET\s+TARGET\s+#(\d+)$') # SET TARGET ID int
+    DIRECTION_PATTERN = re.compile(r'^(UP|DOWN|LEFT|RIGHT)(?:\s+(\d+))?$') # LEFT RIGHT UP DOWN | LEFT int RIGHT int UP int DOWN int
+    LOAD_PATTERN = re.compile(r'^LOAD(?:\s+(\d+))?$') # LOAD | LOAD int
+    UNLOAD_PATTERN = re.compile(r'^UNLOAD(?:\s+(\d+))?$') # UNLOAD | UNLOAD int
+    GOTO_PATTERN = re.compile(r'^GOTO\s+:([A-Z0-9]+)$') # GOTO :LABEL
     IF_PATTERN = re.compile(
         r'^IF\s+(NOT\s+)?(AT\s+TARGET|HAVE\s+TARGET|LOADING|UNLOADING|FULL|EMPTY)\s+GOTO\s+:([A-Z0-9]+)$'
     )
     WAIT_PATTERN = re.compile(r'^WAIT\s+(\d+)$')
-    ERROR_PATTERN = re.compile(r'^ERROR\((.+)\)$')
-    PRINT_PATTERN = re.compile(r'^PRINT\((.+)\)$')
+    ERROR_PATTERN = re.compile(r'^ERROR\s(.+)$')
+    PRINT_PATTERN = re.compile(r'^PRINT\s(.+)$')
     
     def parse(self, source_code: str) -> ParsedProgram:
         """Jäsennä RoboBASIC-ohjelma.
