@@ -10,9 +10,17 @@ Usage:
   - Edit remote URL below (or run `git remote add origin <URL>` once).
   - Run this script from the repository root in PowerShell.
   - If PowerShell blocks script execution, run: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` (admin rights not required for Process scope).
+
+Examples:
+  .\commit_and_push.ps1
+  .\commit_and_push.ps1 "Lisätty uusia ominaisuuksia"
+  .\commit_and_push.ps1 "Korjattu bugi" -CreateTag
+  .\commit_and_push.ps1 -Message "Custom message" -AppendMessage "Lisätiedot"
 #>
 
 param(
+	[Parameter(Position=0)]
+	[string]$AppendMessage = "",
 	[string]$RemoteUrl = "",
 	[string]$Branch = "main",
 	[string]$Message = "Update KaivosAI",
@@ -60,25 +68,36 @@ git status --short
 
 git add -A
 
-# If commit_message.txt exists in repo root, use it as commit message.
+# Rakenna commit viesti
 $commitFile = Join-Path (Get-Location) "commit_message.txt"
-$useCommitFile = Test-Path $commitFile
+$commitMessage = ""
 
-# Check if commit_message.txt exists and is not empty
-if ($useCommitFile) {
-	$fileContent = Get-Content $commitFile -Raw -ErrorAction SilentlyContinue
-	if (-not $fileContent -or $fileContent.Trim() -eq "") {
+# Luetaan olemassa olevaa viestia tai käytetään oletusta
+if (Test-Path $commitFile) {
+	$commitMessage = Get-Content $commitFile -Raw -ErrorAction SilentlyContinue
+	if (-not $commitMessage -or $commitMessage.Trim() -eq "") {
 		Write-Output "commit_message.txt is empty."
 		$userMessage = Read-Host "Enter commit message"
 		if ($userMessage.Trim()) {
-			# Use Set-Content instead of Out-File to avoid NUL byte issues
-			$userMessage.Trim() | Set-Content -Path $commitFile -Encoding UTF8 -NoNewline
-			Write-Output "Commit message saved to commit_message.txt"
+			$commitMessage = $userMessage.Trim()
 		} else {
 			Write-Output "No commit message provided. Using default message."
-			$useCommitFile = $false
+			$commitMessage = $Message
 		}
 	}
+} else {
+	$commitMessage = $Message
+}
+
+# Lisää käyttäjän antama lisätieto viestin loppuun
+if ($AppendMessage) {
+	$commitMessage = $commitMessage.TrimEnd() + "`n`n" + $AppendMessage.Trim()
+	Write-Output "Appended user message to commit."
+}
+
+# Kirjoita viesti tiedostoon
+if ($commitMessage) {
+	$commitMessage | Set-Content -Path $commitFile -Encoding UTF8 -NoNewline
 }
 
 # commit only if there are staged changes
@@ -86,14 +105,9 @@ $staged = git diff --cached --name-only
 if (-not $staged) {
 	Write-Output "No changes to commit."
 } else {
-	# Use -F to read commit message from file if it exists, otherwise use -m with default message
-	if ($useCommitFile) {
-		git commit -F $commitFile
-	} else {
-		git commit -m $Message
-	}
+	git commit -F $commitFile
 	
-	if ($LASTEXITCODE -eq 0 -and $useCommitFile) {
+	if ($LASTEXITCODE -eq 0) {
 		# delete commit_message.txt after successful commit
 		try {
 			Remove-Item $commitFile -Force -ErrorAction Stop
