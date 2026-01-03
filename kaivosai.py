@@ -88,6 +88,52 @@ class GameSettingsList(DataTable):
             self.add_row("Error", str(e))
 
 
+class RobotCommandsPanel(Container):
+    """Robottikomentojen paneeli: sisältää RUN/STOP-napit valitulle robotille."""
+
+    def compose(self) -> ComposeResult:
+        """Luo paneelin komponentit."""
+        with HorizontalGroup(id="robotCommandsButtonGroup"):
+            yield Button(
+                "RUN", id="btn_robot_run", variant="success", disabled=True
+            )
+            yield Button(
+                "STOP", id="btn_robot_stop", variant="warning", disabled=True
+            )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Käsittele robottikomentojen painallus."""
+        button_id = event.button.id
+        # Lähetä viesti sovellukselle käsittelyyn
+        self.app.handle_robot_command(button_id)
+
+    def update_button_states(self, robot_selected: bool) -> None:
+        """Päivitä nappuloiden tila sen mukaan onko robotti valittuna."""
+        try:
+            run_btn = self.query_one("#btn_robot_run", Button)
+            stop_btn = self.query_one("#btn_robot_stop", Button)
+            run_btn.disabled = not robot_selected
+            stop_btn.disabled = not robot_selected
+            
+            # Lokitus vianetsintää varten
+            import database
+            if hasattr(self.app, 'dbconn'):
+                database.log_event(
+                    self.app.dbconn,
+                    "button_state_update",
+                    f"Robot selected: {robot_selected}, buttons disabled: {not robot_selected}"
+                )
+        except Exception as e:
+            # Lokitus virhetilanteessa
+            import database
+            if hasattr(self.app, 'dbconn'):
+                database.log_event(
+                    self.app.dbconn,
+                    "button_state_error",
+                    f"Error updating button states: {str(e)}"
+                )
+
+
 class GameSettingsPanel(Container):
     """Asetuspaneeli: sisältää asetuslistauksen ja hallintanapit."""
 
@@ -241,7 +287,7 @@ class KaivosAIApp(App):
         self.game_map = map.Map(conn=self.dbconn)
 
         self.mapPanel: GameMapPanel
-        self.commandsPanel: DataTable
+        self.commandsPanel: RobotCommandsPanel
         self.objectsPanel: DataTable
         self.eventsPanel: Log
         self.statusPanel: Static
@@ -256,13 +302,15 @@ class KaivosAIApp(App):
         self._objects_index = {}
         # Päivityslippu: päivitä objects-paneeli vain kun lippu on päällä
         self._objects_dirty = True
+        # Valitun robotin avain
+        self._selected_robot_key = None
 
     def compose(self) -> ComposeResult:
         """Luo sovelluksen komponentit."""
         yield Header(show_clock=True)
         yield Footer()
         self.mapPanel = GameMapPanel(classes="panel", id="mapPanel")
-        self.commandsPanel = DataTable(classes="panel", id="commandsPanel")
+        self.commandsPanel = RobotCommandsPanel(classes="panel", id="commandsPanel")
         self.objectsPanel = DataTable(classes="panel", id="objectsPanel")
         self.eventsPanel = Log(classes="panel", id="eventsPanel")
         self.statusPanel = Static(classes="panel", id="statusPanel")
@@ -341,14 +389,7 @@ class KaivosAIApp(App):
         self.objectsPanel.cursor_type = "row"
         self.refresh_objects_panel()
 
-        self.commandsPanel.border_title = "Commands"
-        self.commandsPanel.add_columns(*COMMANDS[0])
-        self.commandsPanel.cursor_type = "row"
-        for row in COMMANDS[1:]:
-            styled_row = [
-                Text(str(cell), style="italic #03AC13", justify="right") for cell in row
-            ]
-            self.commandsPanel.add_row(*styled_row)
+        self.commandsPanel.border_title = "Robot Commands"
 
         self.gamesettingsPanel.border_title = "Game Settings"
 
@@ -448,6 +489,22 @@ class KaivosAIApp(App):
         if event.data_table.id != "objectsPanel":
             return
 
+        # Tallenna valittu avain ja tarkista onko se robotti
+        # Käytä .value-attribuuttia saadaksesi varsinaisen merkkijonoarvon
+        row_key_value = event.row_key.value if hasattr(event.row_key, 'value') else str(event.row_key)
+        self._selected_robot_key = row_key_value
+        is_robot = self._selected_robot_key and isinstance(self._selected_robot_key, str) and self._selected_robot_key.startswith("robot:")
+        
+        # Lokitus vianetsintää varten
+        database.log_event(
+            self.dbconn,
+            "object_selected",
+            f"Selected: {self._selected_robot_key}, is_robot: {is_robot}"
+        )
+        
+        # Päivitä komento-nappuloiden tila
+        self.commandsPanel.update_button_states(is_robot)
+
         pos = self._objects_index.get(event.row_key)
         if not pos:
             return
@@ -526,6 +583,55 @@ class KaivosAIApp(App):
             self.game_loop.resume()
         else:
             self.game_loop.pause()
+
+    def handle_robot_command(self, button_id: str) -> None:
+        """Käsittele robottikomentojen painallukset."""
+        if not self._selected_robot_key or not self._selected_robot_key.startswith("robot:"):
+            return
+        
+        # Parsitaan robotin ID valitusta avaimesta: "robot:ID:X:Y"
+        try:
+            parts = self._selected_robot_key.split(":")
+            robot_id = int(parts[1]) if len(parts) > 1 else None
+        except (ValueError, IndexError):
+            robot_id = None
+        
+        if robot_id is None:
+            database.log_event(
+                self.dbconn, "robot_command_error", "Ei voitu tunnistaa robotin ID:tä"
+            )
+            return
+        
+        # Hae robotti kartalta
+        robot = None
+        for obj in self.game_map.list_objects():
+            if obj.get("type") == "robot" and obj.get("id") == robot_id:
+                # Haetaan varsinainen objekti
+                pos = (obj.get("x"), obj.get("y"))
+                if pos[0] is not None and pos[1] is not None:
+                    # Position on Tuple[int, int] type alias, käytä tuple-arvoa suoraan
+                    robot = self.game_map.cells.get(pos)
+                break
+        
+        if robot is None:
+            database.log_event(
+                self.dbconn, "robot_command_error", f"Robottia ID={robot_id} ei löytynyt"
+            )
+            return
+        
+        # Suorita komento
+        if button_id == "btn_robot_run":
+            if hasattr(robot, 'vm') and robot.vm:
+                robot.vm.run()
+                database.log_event(
+                    self.dbconn, "robot_command", f"Robotti {robot_id}: RUN"
+                )
+        elif button_id == "btn_robot_stop":
+            if hasattr(robot, 'vm') and robot.vm:
+                robot.vm.stop()
+                database.log_event(
+                    self.dbconn, "robot_command", f"Robotti {robot_id}: STOP"
+                )
 
     def handle_settings_button(self, button_name: str) -> None:
         """Käsittele asetuspaneelin nappuloiden painallukset."""
