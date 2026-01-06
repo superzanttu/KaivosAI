@@ -672,7 +672,7 @@ class RoboBASICParser:
         if match:
             message = match.group(1)
             return Instruction(
-                cmd_type=CommandType.ERROR_CMD,
+                cmd_type=CommandType.ERROR,
                 args=[message],
                 line_num=line_num,
                 raw_text=raw_text
@@ -691,7 +691,7 @@ class RoboBASICParser:
         
         # Tuntematon käsky - palauta virhe-käsky
         return Instruction(
-            cmd_type=CommandType.ERROR_CMD,
+            cmd_type=CommandType.ERROR,
             args=[f"Tuntematon käsky: {line}"],
             line_num=line_num,
             raw_text=raw_text
@@ -1024,7 +1024,7 @@ class RoboBASICVM:
             return 'end'
         
         # ERROR TEXT
-        if cmd == CommandType.ERROR_CMD:
+        if cmd == CommandType.ERROR:
             state.error_message = instr.args[0]
             return 'error'
         

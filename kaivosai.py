@@ -4,6 +4,7 @@ import asyncio
 import sqlite3
 from rich.text import Text
 from textual.app import App, ComposeResult
+from textual.screen import ModalScreen
 from textual.widgets import (
     Header,
     Footer,
@@ -13,8 +14,10 @@ from textual.widgets import (
     DataTable,
     Log,
     Button,
+    TextArea,
+    Label,
 )
-from textual.containers import HorizontalGroup, VerticalScroll, Container
+from textual.containers import HorizontalGroup, VerticalScroll, Container, Vertical
 
 import database
 import map
@@ -91,8 +94,119 @@ class GameSettingsList(DataTable):
             self.add_row("Error", str(e))
 
 
+class RobotProgramEditor(ModalScreen):
+    """Modaalinen ikkuna robotin RoboBASIC-ohjelman editointiin."""
+    
+    CSS = """
+    RobotProgramEditor {
+        align: center middle;
+    }
+    
+    #editor_container {
+        width: 80%;
+        height: 80%;
+        border: thick $accent;
+        background: $surface;
+        padding: 1;
+    }
+    
+    #editor_title {
+        text-align: center;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    
+    #program_editor {
+        height: 1fr;
+        margin-bottom: 1;
+    }
+    
+    #editor_buttons {
+        height: auto;
+        align: center middle;
+    }
+    
+    #editor_buttons Button {
+        margin: 0 2;
+    }
+    """
+    
+    def __init__(self, robot, robot_id: int):
+        """Alusta editori robotille.
+        
+        Args:
+            robot: Robot-objekti jonka ohjelmaa muokataan
+            robot_id: Robotin ID (lokitukseen)
+        """
+        super().__init__()
+        self.robot = robot
+        self.robot_id = robot_id
+        self.original_text = robot.program_text or ""
+    
+    def compose(self) -> ComposeResult:
+        """Luo editorin komponentit."""
+        with Vertical(id="editor_container"):
+            yield Label(f"Robot {self.robot_id} - RoboBASIC Editor", id="editor_title")
+            yield TextArea(self.original_text, id="program_editor", language="python")
+            with HorizontalGroup(id="editor_buttons"):
+                yield Button("SAVE", id="btn_editor_save", variant="success")
+                yield Button("CANCEL", id="btn_editor_cancel", variant="error")
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Käsittele editorin nappuloiden painallus."""
+        if event.button.id == "btn_editor_save":
+            # Tallenna muokattu teksti robotille
+            try:
+                editor = self.query_one("#program_editor", TextArea)
+                new_text = editor.text
+                
+                # Päivitä robotin ohjelmateksti
+                self.robot.program_text = new_text
+                
+                # Lataa uusi ohjelma VM:ään
+                if hasattr(self.robot, 'vm') and self.robot.vm:
+                    self.robot.vm.reset()
+                    load_errors = self.robot.vm.load_program(new_text)
+                    if load_errors:
+                        # Lokita virheet
+                        if hasattr(self.app, 'dbconn'):
+                            database.log_event(
+                                self.app.dbconn,
+                                "program_edit_error",
+                                f"Robotti {self.robot_id} ohjelman latausvirhe: {'; '.join(load_errors)}"
+                            )
+                    else:
+                        if hasattr(self.app, 'dbconn'):
+                            database.log_event(
+                                self.app.dbconn,
+                                "program_edited",
+                                f"Robotti {self.robot_id} ohjelma päivitetty ({len(new_text)} merkkiä)"
+                            )
+                
+                # Päivitä objektipaneeli
+                if hasattr(self.app, '_objects_dirty'):
+                    self.app._objects_dirty = True
+                if hasattr(self.app, 'refresh_objects_panel'):
+                    self.app.refresh_objects_panel()
+                    
+            except Exception as e:
+                if hasattr(self.app, 'dbconn'):
+                    database.log_event(
+                        self.app.dbconn,
+                        "program_edit_error",
+                        f"Virhe tallennettaessa ohjelmaa: {str(e)}"
+                    )
+            
+            # Sulje ikkuna
+            self.dismiss(True)
+            
+        elif event.button.id == "btn_editor_cancel":
+            # Peruuta muutokset ja sulje
+            self.dismiss(False)
+
+
 class RobotCommandsPanel(Container):
-    """Robottikomentojen paneeli: sisältää RUN/STOP-napit valitulle robotille."""
+    """Robottikomentojen paneeli: sisältää RUN/STOP/EDIT-napit valitulle robotille."""
 
     def compose(self) -> ComposeResult:
         """Luo paneelin komponentit."""
@@ -103,6 +217,9 @@ class RobotCommandsPanel(Container):
             yield Button(
                 "STOP", id="btn_robot_stop", variant="warning", disabled=True
             )
+            yield Button(
+                "EDIT", id="btn_robot_edit", variant="primary", disabled=True
+            )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Käsittele robottikomentojen painallus."""
@@ -110,13 +227,21 @@ class RobotCommandsPanel(Container):
         # Lähetä viesti sovellukselle käsittelyyn
         self.app.handle_robot_command(button_id)
 
-    def update_button_states(self, robot_selected: bool) -> None:
-        """Päivitä nappuloiden tila sen mukaan onko robotti valittuna."""
+    def update_button_states(self, robot_selected: bool, robot_stopped: bool = False) -> None:
+        """Päivitä nappuloiden tila sen mukaan onko robotti valittuna ja pysäytettynä.
+        
+        Args:
+            robot_selected: Onko robotti valittuna
+            robot_stopped: Onko robotti STOP-tilassa (vaaditaan EDITille)
+        """
         try:
             run_btn = self.query_one("#btn_robot_run", Button)
             stop_btn = self.query_one("#btn_robot_stop", Button)
+            edit_btn = self.query_one("#btn_robot_edit", Button)
             run_btn.disabled = not robot_selected
             stop_btn.disabled = not robot_selected
+            # EDIT vain jos robotti valittu JA pysäytetty
+            edit_btn.disabled = not (robot_selected and robot_stopped)
             
             # Lokitus vianetsintää varten
             import database
@@ -124,7 +249,7 @@ class RobotCommandsPanel(Container):
                 database.log_event(
                     self.app.dbconn,
                     "button_state_update",
-                    f"Robot selected: {robot_selected}, buttons disabled: {not robot_selected}"
+                    f"Robot selected: {robot_selected}, stopped: {robot_stopped}, buttons disabled: {not robot_selected}"
                 )
         except Exception as e:
             # Lokitus virhetilanteessa
@@ -401,14 +526,8 @@ class KaivosAIApp(App):
         if not self.objectsPanel:
             return
 
-        # Säilytä nykyinen valinta
-        selected_key = None
-        try:
-            coord = getattr(self.objectsPanel, "cursor_coordinate", None)
-            if coord:
-                selected_key = coord[0]
-        except Exception:
-            selected_key = None
+        # Säilytä nykyinen valinta - käytä tallennettua _selected_robot_key:ta
+        selected_key = getattr(self, '_selected_robot_key', None)
 
         # Tyhjennä vain rivit, jätä sarakkeet paikoilleen
         try:
@@ -483,11 +602,9 @@ class KaivosAIApp(App):
         # Palauta valinta jos mahdollista
         if selected_key:
             try:
-                first_col_key = (
-                    self.objectsPanel.columns[0].key if self.objectsPanel.columns else 0
-                )
-                self.objectsPanel.cursor_coordinate = (selected_key, first_col_key)
-                self.objectsPanel.select_row(selected_key)
+                # Hae rivin indeksi row_key:n perusteella ja siirrä kursori sinne
+                row_index = self.objectsPanel.get_row_index(selected_key)
+                self.objectsPanel.move_cursor(row=row_index)
             except Exception:
                 pass
 
@@ -505,15 +622,22 @@ class KaivosAIApp(App):
         self._selected_robot_key = row_key_value
         is_robot = self._selected_robot_key and isinstance(self._selected_robot_key, str) and self._selected_robot_key.startswith("robot:")
         
+        # Tarkista onko robotti STOP-tilassa (EDIT-nappulaa varten)
+        robot_stopped = False
+        if is_robot:
+            robot = self._get_selected_robot()
+            if robot and hasattr(robot, 'execution_mode'):
+                robot_stopped = (robot.execution_mode == "STOP")
+        
         # Lokitus vianetsintää varten
         database.log_event(
             self.dbconn,
             "object_selected",
-            f"Selected: {self._selected_robot_key}, is_robot: {is_robot}"
+            f"Selected: {self._selected_robot_key}, is_robot: {is_robot}, stopped: {robot_stopped}"
         )
         
         # Päivitä komento-nappuloiden tila
-        self.commandsPanel.update_button_states(is_robot)
+        self.commandsPanel.update_button_states(is_robot, robot_stopped)
 
         pos = self._objects_index.get(event.row_key)
         if not pos:
@@ -594,6 +718,33 @@ class KaivosAIApp(App):
         else:
             self.game_loop.pause()
 
+    def _get_selected_robot(self):
+        """Hae valittu robotti kartalta.
+        
+        Returns:
+            Robot-objekti tai None jos ei valittua robottia
+        """
+        if not self._selected_robot_key or not self._selected_robot_key.startswith("robot:"):
+            return None
+        
+        try:
+            parts = self._selected_robot_key.split(":")
+            robot_id = int(parts[1]) if len(parts) > 1 else None
+        except (ValueError, IndexError):
+            return None
+        
+        if robot_id is None:
+            return None
+        
+        # Hae robotti kartalta
+        for obj in self.game_map.list_objects():
+            if obj.get("type") == "robot" and obj.get("id") == robot_id:
+                pos = (obj.get("x"), obj.get("y"))
+                if pos[0] is not None and pos[1] is not None:
+                    return self.game_map.cells.get(pos)
+        
+        return None
+
     def handle_robot_command(self, button_id: str) -> None:
         """Käsittele robottikomentojen painallukset."""
         if not self._selected_robot_key or not self._selected_robot_key.startswith("robot:"):
@@ -668,6 +819,25 @@ class KaivosAIApp(App):
                 database.log_event(
                     self.dbconn, "robot_command", f"Robotti {robot_id}: STOP"
                 )
+        elif button_id == "btn_robot_edit":
+            # Avaa editori vain jos robotti on STOP-tilassa
+            if robot.execution_mode != "STOP":
+                database.log_event(
+                    self.dbconn,
+                    "robot_command_error",
+                    f"Robotti {robot_id} ohjelmaa ei voi muokata RUN-tilassa"
+                )
+                return
+            
+            # Avaa modaalinen editori-ikkuna
+            editor = RobotProgramEditor(robot, robot_id)
+            self.push_screen(editor)
+            database.log_event(
+                self.dbconn,
+                "robot_command",
+                f"Robotti {robot_id}: EDIT avattu"
+            )
+            return  # Älä päivitä paneelia heti, editori hoitaa sen
 
         # Päivitä objektipaneeli jotta ExecutionMode/State/PC näkyvät
         self._objects_dirty = True
@@ -675,6 +845,11 @@ class KaivosAIApp(App):
             self.refresh_objects_panel()
         except Exception:
             pass
+        
+        # Päivitä EDIT-napin tila (vain STOP-tilassa sallittu)
+        is_robot = True
+        robot_stopped = (robot.execution_mode == "STOP") if robot else False
+        self.commandsPanel.update_button_states(is_robot, robot_stopped)
 
     def handle_settings_button(self, button_name: str) -> None:
         """Käsittele asetuspaneelin nappuloiden painallukset."""

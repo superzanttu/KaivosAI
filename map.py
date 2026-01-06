@@ -123,7 +123,11 @@ class Map:
                     if obj_type == "rock":
                         obj = Rock(name=name or "Rock", pos=pos)
                     elif obj_type == "robot":
-                        obj = Robot(name=name or "Robot", pos=pos)
+                        # Lue ohjelmateksti tietokannasta (tallennetaan robobasic_code -kenttään)
+                        program = ""
+                        if "robobasic_code" in row.keys():
+                            program = row["robobasic_code"] or ""
+                        obj = Robot(name=name or "Robot", pos=pos, program_text=program)
                     elif obj_type == "mine":
                         obj = Mine(name=name or "Mine", pos=pos)
                     elif obj_type == "storage":

@@ -132,11 +132,12 @@ def persist_object(conn: sqlite3.Connection, obj, commit: bool = True):
 
     # Serialisoi robotin ohjelmakoodi tallennusta varten
     if obj_type == "robot":
-        code_lines = getattr(obj, "robobasic_code", None)
-        if isinstance(code_lines, list):
-            vals["robobasic_code"] = "\n".join(code_lines)
-        elif isinstance(code_lines, str):
-            vals["robobasic_code"] = code_lines
+        # Robot-luokka käyttää program_text-attribuuttia
+        program = getattr(obj, "program_text", None)
+        if isinstance(program, list):
+            vals["robobasic_code"] = "\n".join(program)
+        elif isinstance(program, str):
+            vals["robobasic_code"] = program
 
     # Käytä UPSERT koordinaattien mukaan jotta koordinaatit ovat auktoritatiiviset.
     # Jos objektilla on ID, käytä sitä; muuten anna tietokannan generoida
