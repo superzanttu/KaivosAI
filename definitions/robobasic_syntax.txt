@@ -25,16 +25,16 @@
 - Everything after `;` is ignored
 - Example: `; This is a comment`
 - Example: `GOTO :mine ; Move to mine`
-- Example: `:LOOP ; Load materials`
+- Example: `LOOP: ; Load materials`
 
 
 ### Label Declaration
 
-**:LABEL**
+**LABEL:**
 - Declares a jump target with name LABEL
 - Must be at start of line, followed by colon
 - Label names: uppercase letters and numbers
-- Example: `:LOOP` or `:START` or `:MINE5`
+- Example: `LOOP` or `START:` or `MINE5:`
 - Labels cannot be on same line as command
 
 
@@ -97,42 +97,55 @@
 
 ### Control Flow Commands
 
-**GOTO :LABEL**
-- Jump to line starting with :LABEL
+**GOTO LABEL**
+- Jump to line starting with LABEL:
 - This doesn't change target of robot.
-- Example: `GOTO :start`
+- Example: `GOTO start`
 
-**IF [NOT] AT TARGET GOTO :LABEL**
+**IF [NOT] AT TARGET GOTO LABEL**
 - If robot position equals target position, jump to label
 - Use NOT to jump if NOT at target
 - Example: `IF AT TARGET GOTO :unload`
 
-**IF [NOT] HAVE TARGET GOTO :LABEL**
+**IF [NOT] HAVE TARGET GOTO LABEL**
 - If robot has target set, jump to label
 - Use NOT to jump if NO target is set
 - Example: `IF NOT HAVE TARGET GOTO :error`
 
-**IF [NOT] LOADING GOTO :LABEL**
+**IF [NOT] LOADING GOTO LABEL**
 - If robot is loading material, jump to label
 - Use NOT to jump if NOT loading
 - Example: `IF LOADING GOTO :wait`
 
-**IF [NOT] UNLOADING GOTO :LABEL**
+**IF [NOT] UNLOADING GOTO LABEL**
 - If robot is unloading material, jump to label
 - Use NOT to jump if NOT unloading
 - Example: `IF UNLOADING GOTO :wait`
 
-**IF [NOT] FULL GOTO :LABEL**
+**IF [NOT] FULL GOTO LABEL**
 - If robot inventory is full, jump to label
 - Use NOT to jump if NOT full
 - Example: `IF FULL GOTO :unload`
 - Example: `IF NOT FULL GOTO :load`
 
-**IF [NOT] EMPTY GOTO :LABEL**
+**IF [NOT] EMPTY GOTO LABEL**
 - If robot inventory is empty, jump to label
 - Use NOT to jump if NOT empty
 - Example: `IF EMPTY GOTO :load`
 - Example: `IF NOT EMPTY GOTO :unload`
+
+**IF [NOT] MOVING GOTO LABEL**
+- If robot is in MOVING state, jump to label
+- Use NOT to jump if NOT MOVING
+- Example: IF MOVING GOTO :label
+- Example: IF NOT MOVING GOTO :Label
+
+**IF [NOT] BLOCKED GOTO LABEL**
+- If robot is in BLOCKED state, jump to label
+- Use NOT to jump if NOT BLOCKED  
+- Example: IF BLOCKED GOTO :label
+- Example: IF NOT BLOCKED GOTO :Label
+
 
 **WAIT N**
 - Pause program execution for N game ticks (N must be positive integer)
@@ -210,6 +223,8 @@ Each IF condition evaluates to true/false at execution time:
 - **UNLOADING**: Robot is currently in UNLOADING state (transfer in progress)
 - **FULL**: Robot inventory amount == robot capacity
 - **EMPTY**: Robot inventory amount == 0
+- **BLOCKED**: Robot can't anymore follow defined route
+- **MOVING**: Robit is moving and can follow defined route
 
 ### Label System
 - Labels must start with `:` and contain uppercase letters and numbers

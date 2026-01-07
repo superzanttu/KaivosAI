@@ -377,6 +377,8 @@ class Condition(Enum):
     UNLOADING = "UNLOADING"
     FULL = "FULL"
     EMPTY = "EMPTY"
+    MOVING = "MOVING"
+    BLOCKED = "BLOCKED"
 
 
 # =============================================================================
@@ -450,15 +452,15 @@ class RoboBASICParser:
     """
     
     # Regex-patternit käskyjen tunnistamiseen
-    LABEL_PATTERN = re.compile(r'^:([A-Z0-9]+)$') # :LABEL
+    LABEL_PATTERN = re.compile(r'^([A-Z0-9]+):$') # LABEL:
     SET_TARGET_XY_PATTERN = re.compile(r'^SET\s+TARGET\s+(\d+)\s+(\d+)$') # SET TARGET XY int int
     SET_TARGET_ID_PATTERN = re.compile(r'^SET\s+TARGET\s+#(\d+)$') # SET TARGET ID int
     DIRECTION_PATTERN = re.compile(r'^(UP|DOWN|LEFT|RIGHT)(?:\s+(\d+))?$') # LEFT RIGHT UP DOWN | LEFT int RIGHT int UP int DOWN int
     LOAD_PATTERN = re.compile(r'^LOAD(?:\s+(\d+))?$') # LOAD | LOAD int
     UNLOAD_PATTERN = re.compile(r'^UNLOAD(?:\s+(\d+))?$') # UNLOAD | UNLOAD int
-    GOTO_PATTERN = re.compile(r'^GOTO\s+:([A-Z0-9]+)$') # GOTO :LABEL
+    GOTO_PATTERN = re.compile(r'^GOTO\s+([A-Z0-9]+)$') # GOTO LABEL
     IF_PATTERN = re.compile(
-        r'^IF\s+(NOT\s+)?(AT\s+TARGET|HAVE\s+TARGET|LOADING|UNLOADING|FULL|EMPTY)\s+GOTO\s+:([A-Z0-9]+)$'
+        r'^IF\s+(NOT\s+)?(AT\s+TARGET|HAVE\s+TARGET|LOADING|UNLOADING|FULL|EMPTY|MOVING|BLOCKED)\s+GOTO\s+([A-Z0-9]+)$'
     )
     WAIT_PATTERN = re.compile(r'^WAIT\s+(\d+)$')
     ERROR_PATTERN = re.compile(r'^ERROR\s(.+)$')
@@ -605,7 +607,7 @@ class RoboBASICParser:
                 raw_text=raw_text
             )
         
-        # GOTO :LABEL
+        # GOTO LABEL
         match = self.GOTO_PATTERN.match(line)
         if match:
             label = match.group(1)
@@ -616,7 +618,7 @@ class RoboBASICParser:
                 raw_text=raw_text
             )
         
-        # IF [NOT] condition GOTO :LABEL
+        # IF [NOT] condition GOTO LABEL
         match = self.IF_PATTERN.match(line)
         if match:
             negated = match.group(1) is not None
@@ -630,7 +632,9 @@ class RoboBASICParser:
                 'LOADING': Condition.LOADING,
                 'UNLOADING': Condition.UNLOADING,
                 'FULL': Condition.FULL,
-                'EMPTY': Condition.EMPTY
+                'EMPTY': Condition.EMPTY,
+                'MOVING': Condition.MOVING,
+                'BLOCKED': Condition.BLOCKED
             }
             condition = condition_map.get(condition_str)
             
@@ -663,6 +667,14 @@ class RoboBASICParser:
         if line == 'END':
             return Instruction(
                 cmd_type=CommandType.END,
+                line_num=line_num,
+                raw_text=raw_text
+            )
+        
+        # NOP
+        if line == 'NOP':
+            return Instruction(
+                cmd_type=CommandType.NOP,
                 line_num=line_num,
                 raw_text=raw_text
             )
@@ -998,7 +1010,7 @@ class RoboBASICVM:
             return 'jump'
         
         # IF [NOT] condition GOTO
-        if cmd == CommandType.IF_GOTO:
+        if cmd == CommandType.IF:
             negated, condition, label = instr.args
             result = self._evaluate_condition(condition)
             if negated:
@@ -1303,6 +1315,12 @@ class RoboBASICVM:
         
         if condition == Condition.EMPTY:
             return robot.material_stored == 0
+        
+        if condition == Condition.MOVING:
+            return robot.state == RobotState.MOVING.value
+        
+        if condition == Condition.BLOCKED:
+            return robot.state == RobotState.BLOCKED.value
         
         return False
     
