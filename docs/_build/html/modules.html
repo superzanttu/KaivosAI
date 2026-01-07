@@ -5,11 +5,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>API-viitteet &#8212; KaivosAI 0.7.3 documentation</title>
+    <title>API-viitteet &#8212; KaivosAI 0.7.32 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
     <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
-    <script src="_static/documentation_options.js?v=d8b005dc"></script>
+    <script src="_static/documentation_options.js?v=9f448e91"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="_static/translations.js?v=aa74d7ce"></script>
@@ -560,6 +560,16 @@ hyppäävät robotit seuraavaan labeliin vai jatkavat lineaarisesti.</p>
 <span class="sig-name descname"><span class="pre">EMPTY</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'EMPTY'</span></span><a class="headerlink" href="#robobasic.Condition.EMPTY" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
+<dl class="py attribute">
+<dt class="sig sig-object py" id="robobasic.Condition.MOVING">
+<span class="sig-name descname"><span class="pre">MOVING</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'MOVING'</span></span><a class="headerlink" href="#robobasic.Condition.MOVING" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="robobasic.Condition.BLOCKED">
+<span class="sig-name descname"><span class="pre">BLOCKED</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'BLOCKED'</span></span><a class="headerlink" href="#robobasic.Condition.BLOCKED" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
 </dd></dl>
 
 <dl class="py exception">
@@ -709,7 +719,7 @@ hyppäävät robotit seuraavaan labeliin vai jatkavat lineaarisesti.</p>
 Käskyjen jäsennys on tarkka - väärin kirjoitetut käskyt aiheuttavat virheen.</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="robobasic.RoboBASICParser.LABEL_PATTERN">
-<span class="sig-name descname"><span class="pre">LABEL_PATTERN</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">re.compile('^:([A-Z0-9]+)$')</span></span><a class="headerlink" href="#robobasic.RoboBASICParser.LABEL_PATTERN" title="Link to this definition">¶</a></dt>
+<span class="sig-name descname"><span class="pre">LABEL_PATTERN</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">re.compile('^([A-Z0-9]+):$')</span></span><a class="headerlink" href="#robobasic.RoboBASICParser.LABEL_PATTERN" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -739,12 +749,12 @@ Käskyjen jäsennys on tarkka - väärin kirjoitetut käskyt aiheuttavat virheen
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="robobasic.RoboBASICParser.GOTO_PATTERN">
-<span class="sig-name descname"><span class="pre">GOTO_PATTERN</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">re.compile('^GOTO\\s+:([A-Z0-9]+)$')</span></span><a class="headerlink" href="#robobasic.RoboBASICParser.GOTO_PATTERN" title="Link to this definition">¶</a></dt>
+<span class="sig-name descname"><span class="pre">GOTO_PATTERN</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">re.compile('^GOTO\\s+([A-Z0-9]+)$')</span></span><a class="headerlink" href="#robobasic.RoboBASICParser.GOTO_PATTERN" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="robobasic.RoboBASICParser.IF_PATTERN">
-<span class="sig-name descname"><span class="pre">IF_PATTERN</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">re.compile('^IF\\s+(NOT\\s+)?(AT\\s+TARGET|HAVE\\s+TARGET|LOADING|UNLOADING|FULL|EMPTY)\\s+GOTO\\s+:([A-Z0-9]+)$')</span></span><a class="headerlink" href="#robobasic.RoboBASICParser.IF_PATTERN" title="Link to this definition">¶</a></dt>
+<span class="sig-name descname"><span class="pre">IF_PATTERN</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">re.compile('^IF\\s+(NOT\\s+)?(AT\\s+TARGET|HAVE\\s+TARGET|LOADING|UNLOADING|FULL|EMPTY|MOVING|BLOCKED)\\s+GOTO\\s+([A-Z0-9]+)$')</span></span><a class="headerlink" href="#robobasic.RoboBASICParser.IF_PATTERN" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -754,12 +764,12 @@ Käskyjen jäsennys on tarkka - väärin kirjoitetut käskyt aiheuttavat virheen
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="robobasic.RoboBASICParser.ERROR_PATTERN">
-<span class="sig-name descname"><span class="pre">ERROR_PATTERN</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">re.compile('^ERROR\\((.+)\\)$')</span></span><a class="headerlink" href="#robobasic.RoboBASICParser.ERROR_PATTERN" title="Link to this definition">¶</a></dt>
+<span class="sig-name descname"><span class="pre">ERROR_PATTERN</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">re.compile('^ERROR\\s(.+)$')</span></span><a class="headerlink" href="#robobasic.RoboBASICParser.ERROR_PATTERN" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="robobasic.RoboBASICParser.PRINT_PATTERN">
-<span class="sig-name descname"><span class="pre">PRINT_PATTERN</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">re.compile('^PRINT\\((.+)\\)$')</span></span><a class="headerlink" href="#robobasic.RoboBASICParser.PRINT_PATTERN" title="Link to this definition">¶</a></dt>
+<span class="sig-name descname"><span class="pre">PRINT_PATTERN</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">re.compile('^PRINT\\s(.+)$')</span></span><a class="headerlink" href="#robobasic.RoboBASICParser.PRINT_PATTERN" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py method">
@@ -1224,15 +1234,16 @@ Käyttää erätallenusta suorituskyvyn parantamiseksi.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="map.Map.add_initial_buildings">
 <span class="sig-name descname"><span class="pre">add_initial_buildings</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#map.Map.add_initial_buildings" title="Link to this definition">¶</a></dt>
-<dd><p>Lisää karttaan alkutilat: 1 tukikohta, 10 kaivosta ja 5 varastoa.</p>
-<p>Sijoittaa rakennukset satunnaisiin vapaisiin sijainteihin välttäen reunoja
-ja varattuja soluja. Käyttää erätallenusta suorituskyvyn parantamiseksi.</p>
+<dd><p>Lisää karttaan alkutilat: 1 tukikohta, 10 kaivosta, 5 varastoa ja 3 robottia.</p>
+<p>Sijoittaa rakennukset ja robotit satunnaisiin vapaisiin sijainteihin välttäen reunoja
+ja varattuja soluja. Jokainen robotti saa RoboBASIC-ohjelman joka tulostaa
+käynnistys- ja lopetusviestit. Käyttää erätallenusta suorituskyvyn parantamiseksi.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>Lisättyjen rakennusten määrät</p>
+<dd class="field-odd"><p>Lisättyjen kohteiden määrät</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>Tuple (base_count, mine_count, storage_count)</p>
+<dd class="field-even"><p>Tuple (base_count, mine_count, storage_count, robot_count)</p>
 </dd>
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>ValueError</strong> – Jos vapaita sijainteja ei löydy riittävästi</p>
@@ -1723,8 +1734,309 @@ Used for terrain generation and map obstacles.</p>
 </dd></dl>
 
 </section>
-<section id="kaivosai">
-<h2>kaivosai<a class="headerlink" href="#kaivosai" title="Link to this heading">¶</a></h2>
+<section id="module-kaivosai">
+<span id="kaivosai"></span><h2>kaivosai<a class="headerlink" href="#module-kaivosai" title="Link to this heading">¶</a></h2>
+<p>KaivosAI - Main entry point with Textual TUI.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="kaivosai.GameSettingsList">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">kaivosai.</span></span><span class="sig-name descname"><span class="pre">GameSettingsList</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_header</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_row_labels</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fixed_rows</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fixed_columns</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">zebra_stripes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header_height</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_cursor</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cursor_foreground_priority</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'renderable'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'css'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'css'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cursor_background_priority</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'renderable'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'css'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'renderable'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cursor_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'cell'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'row'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'column'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'none'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'cell'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cell_padding</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">classes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">disabled</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.GameSettingsList" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">DataTable</span></code></p>
+<p>Asetuslistanäkymä.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.GameSettingsList.on_mount">
+<span class="sig-name descname"><span class="pre">on_mount</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.GameSettingsList.on_mount" title="Link to this definition">¶</a></dt>
+<dd><p>Alustus: käytä jaettua tietokantayhteyttä.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.GameSettingsList.update_list">
+<span class="sig-name descname"><span class="pre">update_list</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.GameSettingsList.update_list" title="Link to this definition">¶</a></dt>
+<dd><p>Hae ja näytä peliasetukset tietokannasta.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.GameSettingsList.can_focus">
+<span class="sig-name descname"><span class="pre">can_focus</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#kaivosai.GameSettingsList.can_focus" title="Link to this definition">¶</a></dt>
+<dd><p>Widget may receive focus.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.GameSettingsList.can_focus_children">
+<span class="sig-name descname"><span class="pre">can_focus_children</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#kaivosai.GameSettingsList.can_focus_children" title="Link to this definition">¶</a></dt>
+<dd><p>Widget’s children may receive focus.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="kaivosai.RobotProgramEditor">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">kaivosai.</span></span><span class="sig-name descname"><span class="pre">RobotProgramEditor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">robot</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">robot_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.RobotProgramEditor" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">ModalScreen</span></code></p>
+<p>Modaalinen ikkuna robotin RoboBASIC-ohjelman editointiin.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.RobotProgramEditor.CSS">
+<span class="sig-name descname"><span class="pre">CSS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'\n</span>&#160;&#160;&#160; <span class="pre">RobotProgramEditor</span> <span class="pre">{\n</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">align:</span> <span class="pre">center</span> <span class="pre">middle;\n</span>&#160;&#160;&#160; <span class="pre">}\n</span>&#160;&#160;&#160; <span class="pre">\n</span>&#160;&#160;&#160; <span class="pre">#editor_container</span> <span class="pre">{\n</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">width:</span> <span class="pre">80%;\n</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">height:</span> <span class="pre">80%;\n</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">border:</span> <span class="pre">thick</span> <span class="pre">$accent;\n</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">background:</span> <span class="pre">$surface;\n</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">padding:</span> <span class="pre">1;\n</span>&#160;&#160;&#160; <span class="pre">}\n</span>&#160;&#160;&#160; <span class="pre">\n</span>&#160;&#160;&#160; <span class="pre">#editor_title</span> <span class="pre">{\n</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">text-align:</span> <span class="pre">center;\n</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">text-style:</span> <span class="pre">bold;\n</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">margin-bottom:</span> <span class="pre">1;\n</span>&#160;&#160;&#160; <span class="pre">}\n</span>&#160;&#160;&#160; <span class="pre">\n</span>&#160;&#160;&#160; <span class="pre">#program_editor</span> <span class="pre">{\n</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">height:</span> <span class="pre">1fr;\n</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">margin-bottom:</span> <span class="pre">1;\n</span>&#160;&#160;&#160; <span class="pre">}\n</span>&#160;&#160;&#160; <span class="pre">\n</span>&#160;&#160;&#160; <span class="pre">#editor_buttons</span> <span class="pre">{\n</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">height:</span> <span class="pre">auto;\n</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">align:</span> <span class="pre">center</span> <span class="pre">middle;\n</span>&#160;&#160;&#160; <span class="pre">}\n</span>&#160;&#160;&#160; <span class="pre">\n</span>&#160;&#160;&#160; <span class="pre">#editor_buttons</span> <span class="pre">Button</span> <span class="pre">{\n</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">margin:</span> <span class="pre">0</span> <span class="pre">2;\n</span>&#160;&#160;&#160; <span class="pre">}\n</span>&#160;&#160;&#160; <span class="pre">'</span></span><a class="headerlink" href="#kaivosai.RobotProgramEditor.CSS" title="Link to this definition">¶</a></dt>
+<dd><p>Inline CSS, useful for quick scripts. Rules here take priority over CSS_PATH.</p>
+<div class="admonition note">
+<p class="admonition-title">Muista</p>
+<p>This CSS applies to the whole app.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.RobotProgramEditor.compose">
+<span class="sig-name descname"><span class="pre">compose</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Iterable</span><span class="p"><span class="pre">[</span></span><span class="pre">Widget</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#kaivosai.RobotProgramEditor.compose" title="Link to this definition">¶</a></dt>
+<dd><p>Luo editorin komponentit.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.RobotProgramEditor.on_button_pressed">
+<span class="sig-name descname"><span class="pre">on_button_pressed</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">event</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Pressed</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.RobotProgramEditor.on_button_pressed" title="Link to this definition">¶</a></dt>
+<dd><p>Käsittele editorin nappuloiden painallus.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.RobotProgramEditor.can_focus">
+<span class="sig-name descname"><span class="pre">can_focus</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#kaivosai.RobotProgramEditor.can_focus" title="Link to this definition">¶</a></dt>
+<dd><p>Widget may receive focus.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.RobotProgramEditor.can_focus_children">
+<span class="sig-name descname"><span class="pre">can_focus_children</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#kaivosai.RobotProgramEditor.can_focus_children" title="Link to this definition">¶</a></dt>
+<dd><p>Widget’s children may receive focus.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="kaivosai.RobotCommandsPanel">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">kaivosai.</span></span><span class="sig-name descname"><span class="pre">RobotCommandsPanel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">children</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Widget</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">classes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">disabled</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">markup</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.RobotCommandsPanel" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Container</span></code></p>
+<p>Robottikomentojen paneeli: sisältää RUN/STOP/EDIT-napit valitulle robotille.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.RobotCommandsPanel.compose">
+<span class="sig-name descname"><span class="pre">compose</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Iterable</span><span class="p"><span class="pre">[</span></span><span class="pre">Widget</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#kaivosai.RobotCommandsPanel.compose" title="Link to this definition">¶</a></dt>
+<dd><p>Luo paneelin komponentit.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.RobotCommandsPanel.on_button_pressed">
+<span class="sig-name descname"><span class="pre">on_button_pressed</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">event</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Pressed</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.RobotCommandsPanel.on_button_pressed" title="Link to this definition">¶</a></dt>
+<dd><p>Käsittele robottikomentojen painallus.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.RobotCommandsPanel.update_button_states">
+<span class="sig-name descname"><span class="pre">update_button_states</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">robot_selected</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">robot_stopped</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.RobotCommandsPanel.update_button_states" title="Link to this definition">¶</a></dt>
+<dd><p>Päivitä nappuloiden tila sen mukaan onko robotti valittuna ja pysäytettynä.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>robot_selected</strong> – Onko robotti valittuna</p></li>
+<li><p><strong>robot_stopped</strong> – Onko robotti STOP-tilassa (vaaditaan EDITille)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.RobotCommandsPanel.can_focus">
+<span class="sig-name descname"><span class="pre">can_focus</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#kaivosai.RobotCommandsPanel.can_focus" title="Link to this definition">¶</a></dt>
+<dd><p>Widget may receive focus.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.RobotCommandsPanel.can_focus_children">
+<span class="sig-name descname"><span class="pre">can_focus_children</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#kaivosai.RobotCommandsPanel.can_focus_children" title="Link to this definition">¶</a></dt>
+<dd><p>Widget’s children may receive focus.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="kaivosai.GameSettingsPanel">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">kaivosai.</span></span><span class="sig-name descname"><span class="pre">GameSettingsPanel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">children</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Widget</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">classes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">disabled</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">markup</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.GameSettingsPanel" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Container</span></code></p>
+<p>Asetuspaneeli: sisältää asetuslistauksen ja hallintanapit.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.GameSettingsPanel.compose">
+<span class="sig-name descname"><span class="pre">compose</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Iterable</span><span class="p"><span class="pre">[</span></span><span class="pre">Widget</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#kaivosai.GameSettingsPanel.compose" title="Link to this definition">¶</a></dt>
+<dd><p>Luo paneelin komponentit.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.GameSettingsPanel.on_button_pressed">
+<span class="sig-name descname"><span class="pre">on_button_pressed</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">event</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Pressed</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.GameSettingsPanel.on_button_pressed" title="Link to this definition">¶</a></dt>
+<dd><p>Käsittele nappulan painallus.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.GameSettingsPanel.can_focus">
+<span class="sig-name descname"><span class="pre">can_focus</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#kaivosai.GameSettingsPanel.can_focus" title="Link to this definition">¶</a></dt>
+<dd><p>Widget may receive focus.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.GameSettingsPanel.can_focus_children">
+<span class="sig-name descname"><span class="pre">can_focus_children</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#kaivosai.GameSettingsPanel.can_focus_children" title="Link to this definition">¶</a></dt>
+<dd><p>Widget’s children may receive focus.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="kaivosai.GameMapPanel">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">kaivosai.</span></span><span class="sig-name descname"><span class="pre">GameMapPanel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_header</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_row_labels</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fixed_rows</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fixed_columns</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">zebra_stripes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header_height</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_cursor</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cursor_foreground_priority</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'renderable'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'css'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'css'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cursor_background_priority</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'renderable'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'css'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'renderable'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cursor_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'cell'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'row'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'column'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'none'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'cell'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cell_padding</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">classes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">disabled</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.GameMapPanel" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">DataTable</span></code></p>
+<p>Karttanäkymä: näyttää pelikartan ruudukkona.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.GameMapPanel.on_mount">
+<span class="sig-name descname"><span class="pre">on_mount</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.GameMapPanel.on_mount" title="Link to this definition">¶</a></dt>
+<dd><p>Alustus: aseta solukohdistin ja riviotsikot.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.GameMapPanel.refresh_from_map">
+<span class="sig-name descname"><span class="pre">refresh_from_map</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.GameMapPanel.refresh_from_map" title="Link to this definition">¶</a></dt>
+<dd><p>Päivitä karttanäkymä muistissa olevasta Map.cells-rakenteesta.</p>
+<p>Rakentaa ruudukon objekteista luotettavaa näyttöä varten.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.GameMapPanel.can_focus">
+<span class="sig-name descname"><span class="pre">can_focus</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#kaivosai.GameMapPanel.can_focus" title="Link to this definition">¶</a></dt>
+<dd><p>Widget may receive focus.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.GameMapPanel.can_focus_children">
+<span class="sig-name descname"><span class="pre">can_focus_children</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></span><a class="headerlink" href="#kaivosai.GameMapPanel.can_focus_children" title="Link to this definition">¶</a></dt>
+<dd><p>Widget’s children may receive focus.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">kaivosai.</span></span><span class="sig-name descname"><span class="pre">KaivosAIApp</span></span><a class="headerlink" href="#kaivosai.KaivosAIApp" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">App</span></code></p>
+<p>KaivosAI-pelin päätekstuaalinen käyttöliittymä.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.CSS_PATH">
+<span class="sig-name descname"><span class="pre">CSS_PATH</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'kaivosai.tcss'</span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.CSS_PATH" title="Link to this definition">¶</a></dt>
+<dd><p>File paths to load CSS from.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.BINDINGS">
+<span class="sig-name descname"><span class="pre">BINDINGS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">[('q',</span> <span class="pre">'quit',</span> <span class="pre">'Quit'),</span> <span class="pre">('p',</span> <span class="pre">'toggle_pause',</span> <span class="pre">'Pause/Resume')]</span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.BINDINGS" title="Link to this definition">¶</a></dt>
+<dd><p>The default key bindings.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.mapPanel">
+<span class="sig-name descname"><span class="pre">mapPanel</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#kaivosai.GameMapPanel" title="kaivosai.GameMapPanel"><span class="pre">GameMapPanel</span></a></span><a class="headerlink" href="#kaivosai.KaivosAIApp.mapPanel" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.commandsPanel">
+<span class="sig-name descname"><span class="pre">commandsPanel</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#kaivosai.RobotCommandsPanel" title="kaivosai.RobotCommandsPanel"><span class="pre">RobotCommandsPanel</span></a></span><a class="headerlink" href="#kaivosai.KaivosAIApp.commandsPanel" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.objectsPanel">
+<span class="sig-name descname"><span class="pre">objectsPanel</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">DataTable</span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.objectsPanel" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.eventsPanel">
+<span class="sig-name descname"><span class="pre">eventsPanel</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Log</span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.eventsPanel" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.statusPanel">
+<span class="sig-name descname"><span class="pre">statusPanel</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Static</span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.statusPanel" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.gamesettingsPanel">
+<span class="sig-name descname"><span class="pre">gamesettingsPanel</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#kaivosai.GameSettingsPanel" title="kaivosai.GameSettingsPanel"><span class="pre">GameSettingsPanel</span></a></span><a class="headerlink" href="#kaivosai.KaivosAIApp.gamesettingsPanel" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.game_loop">
+<span class="sig-name descname"><span class="pre">game_loop</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#gameloop.GameLoop" title="gameloop.GameLoop"><span class="pre">GameLoop</span></a></span><a class="headerlink" href="#kaivosai.KaivosAIApp.game_loop" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.compose">
+<span class="sig-name descname"><span class="pre">compose</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Iterable</span><span class="p"><span class="pre">[</span></span><span class="pre">Widget</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.compose" title="Link to this definition">¶</a></dt>
+<dd><p>Luo sovelluksen komponentit.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.on_ready">
+<span class="sig-name descname"><span class="pre">on_ready</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.on_ready" title="Link to this definition">¶</a></dt>
+<dd><p>Kutsutaan kun sovellus on valmis - käynnistä pelisilmukka.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.on_mount">
+<span class="sig-name descname"><span class="pre">on_mount</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.on_mount" title="Link to this definition">¶</a></dt>
+<dd><p>Liitä sovellus ja aseta otsikot.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.refresh_objects_panel">
+<span class="sig-name descname"><span class="pre">refresh_objects_panel</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.refresh_objects_panel" title="Link to this definition">¶</a></dt>
+<dd><p>Päivitä objects-paneeli kartalla olevilla roboteilla ja rakennuksilla.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.on_data_table_row_selected">
+<span class="sig-name descname"><span class="pre">on_data_table_row_selected</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">event</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">RowSelected</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.on_data_table_row_selected" title="Link to this definition">¶</a></dt>
+<dd><p>Siirrä kartta valitun objektin koordinaatteihin objects-paneelista.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.update_game_ui">
+<span class="sig-name descname"><span class="pre">update_game_ui</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.update_game_ui" title="Link to this definition">¶</a></dt>
+<dd><p>Päivitä käyttöliittymä pelisilmukan kutsumana.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.action_toggle_pause">
+<span class="sig-name descname"><span class="pre">action_toggle_pause</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.action_toggle_pause" title="Link to this definition">¶</a></dt>
+<dd><p>Vaihda pelin taukotila.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.handle_robot_command">
+<span class="sig-name descname"><span class="pre">handle_robot_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">button_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.handle_robot_command" title="Link to this definition">¶</a></dt>
+<dd><p>Käsittele robottikomentojen painallukset.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.handle_settings_button">
+<span class="sig-name descname"><span class="pre">handle_settings_button</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">button_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.handle_settings_button" title="Link to this definition">¶</a></dt>
+<dd><p>Käsittele asetuspaneelin nappuloiden painallukset.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="kaivosai.KaivosAIApp.on_unmount">
+<span class="sig-name descname"><span class="pre">on_unmount</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#kaivosai.KaivosAIApp.on_unmount" title="Link to this definition">¶</a></dt>
+<dd><p>Siivoa resurssit ennen sulkemista.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="kaivosai.main">
+<span class="sig-prename descclassname"><span class="pre">kaivosai.</span></span><span class="sig-name descname"><span class="pre">main</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#kaivosai.main" title="Link to this definition">¶</a></dt>
+<dd><p>Käynnistä KaivosAI-sovellus.</p>
+</dd></dl>
+
 </section>
 <section id="module-database">
 <span id="database"></span><h2>database<a class="headerlink" href="#module-database" title="Link to this heading">¶</a></h2>
@@ -2172,7 +2484,7 @@ allowing broad exception catching when needed.</p>
 <li class="toctree-l2"><a class="reference internal" href="#module-map">map</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#module-models">models</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#module-gameloop">gameloop</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#kaivosai">kaivosai</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#module-kaivosai">kaivosai</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#module-database">database</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#module-exceptions">exceptions</a></li>
 </ul>
